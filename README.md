@@ -1,16 +1,67 @@
-# React + Vite
+# SMP Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite frontend for the SMP social platform.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Email/password auth with verification and reset flow
+- Home feed with post creation, reactions, comments, share, and reporting
+- Page system (explore, follow/unfollow, owner management)
+- Page posts in feed with dual identity display (`page via author`)
+- Admin console (users, posts, pages, reports, content settings)
+- Real-time presence and chat via Socket.IO
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React 19
+- Vite
+- React Router
+- Socket.IO client
 
-## Expanding the ESLint configuration
+## Prerequisites
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- Node.js 18+
+- Running backend API (default: `http://localhost:5000`)
+
+## Setup
+
+1) Install dependencies
+
+```bash
+npm install
+```
+
+2) Configure environment (optional)
+
+Create `.env` in this folder:
+
+```env
+VITE_API_URL=http://localhost:5000
+```
+
+If omitted, it defaults to `http://localhost:5000`.
+
+3) Start dev server
+
+```bash
+npm run dev
+```
+
+App will run on `http://localhost:5173`.
+
+## Scripts
+
+- `npm run dev` - start dev server
+- `npm run build` - production build
+- `npm run preview` - preview production build
+- `npm run lint` - run ESLint
+
+## API Configuration
+
+Centralized in [src/config/api.js](src/config/api.js).
+
+## Notes
+
+- Auth token is stored in `localStorage` as `token`.
+- Presence socket auto-disconnects on expired token and logs user out.
+- Admin navigation includes reports management with post, comment, and page reports.
