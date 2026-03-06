@@ -25,7 +25,7 @@ const Login = () => {
           navigate('/admin/dashboard');
         } else {
           // Regular users go to home
-          navigate('/');
+          navigate('/home');
         }
       } else {
         setError(data.message || 'Login failed');

@@ -1,0 +1,86 @@
+.account-page {
+  min-height: 100vh;
+  background: #f4f6fb;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.account-card {
+  width: min(520px, 92vw);
+  background: white;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 18px;
+}
+
+.account-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.account-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: grid;
+  place-items: center;
+  color: white;
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.account-name {
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.account-handle {
+  color: #64748b;
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.account-details {
+  display: grid;
+  gap: 12px;
+}
+
+.account-details div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.account-details strong {
+  color: #0f172a;
+}
+
+.account-error {
+  color: #ef4444;
+  font-size: 13px;
+}
+
+.account-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.account-btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: #6366f1;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}

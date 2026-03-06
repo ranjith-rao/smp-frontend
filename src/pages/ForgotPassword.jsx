@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { authService } from '../services/authService';
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log("Password reset requested for:", email);
-    // Later: API call to Node.js to check if email exists and send token
-    setSubmitted(true);
+    setLoading(true);
+    setError('');
+
+    try {
+      await authService.requestPasswordReset(email);
+      setSubmitted(true);
+    } catch (err) {
+      setError(err.message || 'Unable to request reset link');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -32,7 +43,10 @@ const ForgotPassword = () => {
               onChange={(e) => setEmail(e.target.value)}
               required 
             />
-            <button type="submit" className="btn-primary">Send Reset Link</button>
+            {error && <p style={{ color: '#e74c3c', fontSize: '14px' }}>{error}</p>}
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? 'Sending...' : 'Send Reset Link'}
+            </button>
             <div className="form-footer">
               <Link to="/login">Back to Login</Link>
             </div>

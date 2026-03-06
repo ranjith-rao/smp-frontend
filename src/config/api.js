@@ -10,7 +10,10 @@ export const API_CONFIG = {
   ENDPOINTS: {
     AUTH: `${API_BASE_URL}/api/auth`,
     USERS: `${API_BASE_URL}/api/users`,
+    PAGES: `${API_BASE_URL}/api/pages`,
     POSTS: `${API_BASE_URL}/api/posts`,
+    CONTENT: `${API_BASE_URL}/api/content`,
+    CHATS: `${API_BASE_URL}/api/chats`,
     ADMIN: `${API_BASE_URL}/api/admin`,
   },
 };

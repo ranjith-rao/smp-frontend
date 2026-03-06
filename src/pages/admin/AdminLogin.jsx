@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { authService } from '../../services/authService';
 import '../../styles/Admin.css';
@@ -14,10 +14,12 @@ const AdminLogin = () => {
     return <Navigate to="/admin/dashboard" replace />;
   }
 
-  // If user is logged in but not admin, redirect to home
-  if (authService.isLoggedIn() && !authService.isAdmin()) {
-    return <Navigate to="/" replace />;
-  }
+  // If user is logged in but not admin, clear the session so admin login can proceed
+  useEffect(() => {
+    if (authService.isLoggedIn() && !authService.isAdmin()) {
+      authService.logout();
+    }
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();

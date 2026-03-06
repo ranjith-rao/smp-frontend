@@ -57,6 +57,24 @@ const AdminLayout = () => {
           </Link>
           
           <Link 
+            to="/admin/pages"
+            style={{
+              color: isActive('/admin/pages') ? '#6366f1' : '#94a3b8',
+              textDecoration: 'none',
+              padding: '12px 16px',
+              borderRadius: '6px',
+              backgroundColor: isActive('/admin/pages') ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+              fontWeight: isActive('/admin/pages') ? '600' : '500',
+              transition: 'all 0.2s ease',
+              display: 'block'
+            }}
+            onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(99, 102, 241, 0.1)'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = isActive('/admin/pages') ? 'rgba(99, 102, 241, 0.1)' : 'transparent'}
+          >
+            Manage Pages
+          </Link>
+          
+          <Link 
             to="/admin/posts"
             style={{
               color: isActive('/admin/posts') ? '#6366f1' : '#94a3b8',
@@ -90,6 +108,42 @@ const AdminLayout = () => {
             onMouseLeave={(e) => e.target.style.backgroundColor = isActive('/admin/reports') ? 'rgba(99, 102, 241, 0.1)' : 'transparent'}
           >
             Reports
+          </Link>
+
+          <Link 
+            to="/admin/queries"
+            style={{
+              color: isActive('/admin/queries') ? '#6366f1' : '#94a3b8',
+              textDecoration: 'none',
+              padding: '12px 16px',
+              borderRadius: '6px',
+              backgroundColor: isActive('/admin/queries') ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+              fontWeight: isActive('/admin/queries') ? '600' : '500',
+              transition: 'all 0.2s ease',
+              display: 'block'
+            }}
+            onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(99, 102, 241, 0.1)'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = isActive('/admin/queries') ? 'rgba(99, 102, 241, 0.1)' : 'transparent'}
+          >
+            Manage Queries
+          </Link>
+
+          <Link 
+            to="/admin/content"
+            style={{
+              color: isActive('/admin/content') ? '#6366f1' : '#94a3b8',
+              textDecoration: 'none',
+              padding: '12px 16px',
+              borderRadius: '6px',
+              backgroundColor: isActive('/admin/content') ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+              fontWeight: isActive('/admin/content') ? '600' : '500',
+              transition: 'all 0.2s ease',
+              display: 'block'
+            }}
+            onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(99, 102, 241, 0.1)'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = isActive('/admin/content') ? 'rgba(99, 102, 241, 0.1)' : 'transparent'}
+          >
+            Manage Menu Contents
           </Link>
           
           <hr style={{ borderColor: '#334155', margin: '20px 0' }} />

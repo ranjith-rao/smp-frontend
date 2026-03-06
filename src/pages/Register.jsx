@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
+import Dialog from '../components/Dialog';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -15,6 +16,27 @@ const Register = () => {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const dialogActionRef = useRef(null);
+  const [dialogState, setDialogState] = useState({
+    open: false,
+    title: '',
+    message: '',
+    confirmText: 'OK',
+    variant: 'default'
+  });
+
+  const closeDialog = () => {
+    setDialogState((prev) => ({ ...prev, open: false }));
+    dialogActionRef.current = null;
+  };
+
+  const handleDialogConfirm = async () => {
+    if (dialogActionRef.current) {
+      await dialogActionRef.current();
+    } else {
+      closeDialog();
+    }
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -51,8 +73,17 @@ const Register = () => {
       );
       
       if (data.message && data.message.includes('successfully')) {
-        alert('Registered successfully! We have sent a verification link to your email. Please verify before logging in.');
-        navigate('/login');
+        setDialogState({
+          open: true,
+          title: 'Registration Successful',
+          message: 'Your account has been created! We have sent a verification link to your email. Please verify before logging in.',
+          confirmText: 'Go to Login',
+          variant: 'default'
+        });
+        dialogActionRef.current = () => {
+          closeDialog();
+          navigate('/login');
+        };
       } else {
         setError(data.message || 'Registration failed');
       }
@@ -134,6 +165,15 @@ const Register = () => {
           </div>
         </form>
       </div>
+
+      <Dialog
+        isOpen={dialogState.open}
+        title={dialogState.title}
+        message={dialogState.message}
+        confirmText={dialogState.confirmText}
+        variant={dialogState.variant}
+        onConfirm={handleDialogConfirm}
+      />
     </div>
   );
 };

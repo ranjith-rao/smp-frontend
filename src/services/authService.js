@@ -41,6 +41,9 @@ export const authService = {
       if (decoded && decoded.role) {
         localStorage.setItem('userRole', decoded.role);
       }
+      
+      // Emit login event for other parts of the app
+      window.dispatchEvent(new CustomEvent('auth:login'));
     }
     return data;
   },
@@ -60,9 +63,80 @@ export const authService = {
     return data;
   },
 
+  async requestPasswordReset(email) {
+    const res = await fetch(`${API_CONFIG.ENDPOINTS.AUTH}/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || 'Unable to request reset link');
+    }
+    return data;
+  },
+
+  async resetPassword(token, password) {
+    const res = await fetch(`${API_CONFIG.ENDPOINTS.AUTH}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || 'Unable to reset password');
+    }
+    return data;
+  },
+
+  async getProfile() {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('No auth token found');
+    }
+
+    const res = await fetch(`${API_CONFIG.ENDPOINTS.AUTH}/me`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || 'Unable to fetch profile');
+    }
+    return data;
+  },
+
+  async updateProfile(payload) {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('No auth token found');
+    }
+
+    const res = await fetch(`${API_CONFIG.ENDPOINTS.AUTH}/me`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || 'Unable to update profile');
+    }
+    return data;
+  },
+
   logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
+    // Emit logout event for other parts of the app
+    window.dispatchEvent(new CustomEvent('auth:logout'));
   },
 
   getToken() {
@@ -73,8 +147,30 @@ export const authService = {
     return localStorage.getItem('userRole');
   },
 
+  getUserId() {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    const decoded = decodeToken(token);
+    return decoded?.userId || null;
+  },
+
   isLoggedIn() {
-    return !!localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    if (!token) return false;
+    
+    // Check if token is expired
+    const decoded = decodeToken(token);
+    if (!decoded || !decoded.exp) return false;
+    
+    // exp is in seconds, Date.now() is in milliseconds
+    const isExpired = decoded.exp * 1000 < Date.now();
+    if (isExpired) {
+      // Auto-cleanup expired token
+      this.logout();
+      return false;
+    }
+    
+    return true;
   },
 
   isAdmin() {
