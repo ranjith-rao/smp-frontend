@@ -6,17 +6,28 @@ import { API_CONFIG } from '../config/api';
 import { getUserHandle, getUserDisplayName } from '../utils/userHelpers';
 import { normalizePostContent } from '../utils/contentHelpers';
 import Dialog from '../components/Dialog';
+import AppHeader from '../components/AppHeader';
+import CommentSection from '../components/CommentSection';
+import { useSiteSettings } from '../context/SiteSettingsContext';
+import shareIcon from '../assets/share.png';
 import '../styles/Profile.css';
 
 const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const { settings } = useSiteSettings();
+  const appName = settings?.appName || 'NEXUS';
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [userPosts, setUserPosts] = useState([]);
+  const [likedPosts, setLikedPosts] = useState({});
+  const [likeCounts, setLikeCounts] = useState({});
+  const [commentCounts, setCommentCounts] = useState({});
+  const [likeLoading, setLikeLoading] = useState({});
+  const [openCommentsPostId, setOpenCommentsPostId] = useState(null);
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const dialogActionRef = useRef(null);
@@ -118,6 +129,112 @@ const Profile = () => {
     }
   }, [userId]);
 
+  const countAllComments = (comments) => {
+    if (!Array.isArray(comments) || comments.length === 0) return 0;
+    return comments.reduce((total, comment) => {
+      return total + 1 + (countAllComments(comment.replies) || 0);
+    }, 0);
+  };
+
+  const loadLikeAndCommentInfo = async (postId) => {
+    try {
+      const token = authService.getToken();
+      const likesRes = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}/likes`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (likesRes.ok) {
+        const likesData = await likesRes.json();
+        setLikeCounts((prev) => ({ ...prev, [postId]: likesData.likeCount || 0 }));
+        setLikedPosts((prev) => ({ ...prev, [postId]: Boolean(likesData.likedByUser) }));
+      }
+
+      const commentsRes = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}/comments`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (commentsRes.ok) {
+        const data = await commentsRes.json();
+        const comments = Array.isArray(data.comments) ? data.comments : [];
+        setCommentCounts((prev) => ({ ...prev, [postId]: countAllComments(comments) }));
+      }
+    } catch (engagementError) {
+      console.error(`Error loading engagement for post ${postId}:`, engagementError);
+    }
+  };
+
+  useEffect(() => {
+    if (!userPosts.length) return;
+    userPosts.forEach((post) => {
+      loadLikeAndCommentInfo(post.id);
+    });
+  }, [userPosts]);
+
+  const handleToggleLike = async (postId) => {
+    setLikeLoading((prev) => ({ ...prev, [postId]: true }));
+    try {
+      const token = authService.getToken();
+      let isCurrentlyLiked = likedPosts[postId];
+
+      if (typeof isCurrentlyLiked === 'undefined') {
+        const likesRes = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}/likes`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        if (likesRes.ok) {
+          const likesData = await likesRes.json();
+          isCurrentlyLiked = Boolean(likesData.likedByUser);
+          setLikedPosts((prev) => ({ ...prev, [postId]: isCurrentlyLiked }));
+          setLikeCounts((prev) => ({ ...prev, [postId]: likesData.likeCount || 0 }));
+        } else {
+          isCurrentlyLiked = false;
+        }
+      }
+
+      const res = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}/like`, {
+        method: isCurrentlyLiked ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setLikedPosts((prev) => ({ ...prev, [postId]: !isCurrentlyLiked }));
+        setLikeCounts((prev) => ({ ...prev, [postId]: data.likeCount || 0 }));
+      } else {
+        await loadLikeAndCommentInfo(postId);
+      }
+    } catch (likeError) {
+      console.error('Error toggling like:', likeError);
+    } finally {
+      setLikeLoading((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const handleToggleComments = (postId) => {
+    setOpenCommentsPostId((prev) => (prev === postId ? null : postId));
+    loadLikeAndCommentInfo(postId);
+  };
+
+  const handleShare = async (postId, content) => {
+    const url = `${window.location.origin}/home#post-${postId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${appName} Post`,
+          text: content?.slice(0, 120) || `Check this post on ${appName}`,
+          url,
+        });
+        return;
+      } catch {
+        // Fall through to clipboard copy
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      openAlert('Link copied to clipboard!', 'Share');
+    } catch {
+      openAlert('Unable to copy link', 'Share');
+    }
+  };
+
   const handleFollow = async () => {
     setFollowLoading(true);
     try {
@@ -153,8 +270,8 @@ const Profile = () => {
   };
 
   const handleMessage = () => {
-    // TODO: Implement messaging feature
-    console.log('Message functionality coming soon');
+    // Navigate to home and open DM chat with this user
+    navigate('/home', { state: { openDirectChat: userId } });
   };
 
   if (loading) {
@@ -184,64 +301,222 @@ const Profile = () => {
   }
 
   return (
-    <div className="profile-container">
-      <div className="profile-page-header">
-        <div className="header-left">
-          <div className="brand-logo">NEXUS</div>
+    <div style={{
+      minHeight: '100vh',
+      background: '#f8fafc'
+    }}>
+      <AppHeader showPageNav={false} />
+
+      <div style={{
+        maxWidth: '1000px',
+        margin: '0 auto',
+        padding: '24px 20px'
+      }}>
+        {/* Breadcrumbs */}
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          padding: '12px 20px',
+          marginBottom: '24px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          fontSize: '14px',
+          color: '#64748b',
+          display: 'inline-block'
+        }}>
+          <span 
+            onClick={() => navigate('/home')}
+            style={{ cursor: 'pointer', color: '#667eea', fontWeight: '500' }}
+          >
+            Home
+          </span>
+          <span style={{ margin: '0 8px' }}>›</span>
+          <span style={{ color: '#1e293b', fontWeight: '600' }}>Profile</span>
         </div>
-        <div className="header-right">
-          <button className="back-btn" onClick={() => navigate(-1)}>← Back</button>
-        </div>
-      </div>
 
-      {!loading && !error && (
-        <div className="profile-header">
-          <div className="profile-avatar-large">
-            {user.profileImageUrl ? (
-              <img src={user.profileImageUrl} alt={displayName} />
-            ) : (
-              <div className="avatar-placeholder">{avatarLetter}</div>
-            )}
-          </div>
-
-          <div className="profile-info">
-            <h1 className="profile-name">{displayName}</h1>
-            <p className="profile-username">@{getUserHandle(user)}</p>
-
-            <div className="profile-stats">
-              <div className="stat">
-                <span className="stat-count">{userPosts.length}</span>
-                <span className="stat-label">posts</span>
-              </div>
-              <div className="stat">
-                <span className="stat-count">{followerCount}</span>
-                <span className="stat-label">followers</span>
-              </div>
-              <div className="stat">
-                <span className="stat-count">{followingCount}</span>
-                <span className="stat-label">following</span>
-              </div>
+        {!loading && !error && (
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '32px',
+            marginBottom: '24px',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            display: 'flex',
+            gap: '32px',
+            alignItems: 'flex-start'
+          }}>
+            <div style={{
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              {user.profileImageUrl ? (
+                <img src={user.profileImageUrl} alt={displayName} style={{
+                  width: '140px',
+                  height: '140px',
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  border: '4px solid #667eea'
+                }} />
+              ) : (
+                <div style={{
+                  width: '140px',
+                  height: '140px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '56px',
+                  fontWeight: '300'
+                }}>
+                  {avatarLetter}
+                </div>
+              )}
             </div>
 
-            {user.bio && <p className="profile-bio">{user.bio}</p>}
+            <div style={{ flex: 1 }}>
+              <h1 style={{
+                fontSize: '28px',
+                fontWeight: '700',
+                margin: '0 0 8px 0',
+                color: '#1e293b'
+              }}>
+                {displayName}
+              </h1>
+              <p style={{
+                fontSize: '16px',
+                color: '#64748b',
+                margin: '0 0 20px 0',
+                fontWeight: '400'
+              }}>
+                @{getUserHandle(user)}
+              </p>
 
-            {!isOwnProfile && (
-              <div className="profile-actions">
-                <button 
-                  className={`follow-btn ${isFollowing ? 'following' : ''}`}
-                  onClick={handleFollow}
-                  disabled={followLoading}
-                >
-                  {followLoading ? '...' : (isFollowing ? 'Unfollow' : 'Follow')}
-                </button>
-                <button className="message-btn" onClick={handleMessage}>
-                  Message
-                </button>
+              <div style={{
+                display: 'flex',
+                gap: '32px',
+                marginBottom: '20px'
+              }}>
+                <div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontWeight: '700',
+                    color: '#1e293b'
+                  }}>
+                    {userPosts.length}
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    fontWeight: '500',
+                    marginTop: '4px'
+                  }}>
+                    Posts
+                  </div>
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontWeight: '700',
+                    color: '#1e293b'
+                  }}>
+                    {followerCount}
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    fontWeight: '500',
+                    marginTop: '4px'
+                  }}>
+                    Followers
+                  </div>
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontWeight: '700',
+                    color: '#1e293b'
+                  }}>
+                    {followingCount}
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    fontWeight: '500',
+                    marginTop: '4px'
+                  }}>
+                    Following
+                  </div>
+                </div>
               </div>
-            )}
+
+              {user.bio && (
+                <p style={{
+                  fontSize: '15px',
+                  color: '#475569',
+                  margin: '16px 0 20px 0',
+                  lineHeight: '1.6'
+                }}>
+                  {user.bio}
+                </p>
+              )}
+
+              {!isOwnProfile && (
+                <div style={{
+                  display: 'flex',
+                  gap: '12px'
+                }}>
+                  <button 
+                    onClick={handleFollow}
+                    disabled={followLoading}
+                    style={{
+                      padding: '8px 24px',
+                      background: isFollowing ? '#dc2626' : '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      cursor: followLoading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s ease',
+                      opacity: followLoading ? 0.6 : 1
+                    }}
+                    onMouseOver={(e) => !followLoading && (e.target.style.background = isFollowing ? '#b91c1c' : '#5568d3')}
+                    onMouseOut={(e) => (e.target.style.background = isFollowing ? '#dc2626' : '#667eea')}
+                  >
+                    {followLoading ? 'Loading...' : (isFollowing ? 'Unfollow' : 'Follow')}
+                  </button>
+                  <button 
+                    onClick={handleMessage}
+                    style={{
+                      padding: '8px 24px',
+                      background: 'white',
+                      color: '#667eea',
+                      border: '2px solid #667eea',
+                      borderRadius: '8px',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseOver={(e) => {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#5568d3';
+                    }}
+                    onMouseOut={(e) => {
+                      e.target.style.background = 'white';
+                      e.target.style.borderColor = '#667eea';
+                    }}
+                  >
+                    Message
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {error && (
         <div className="error">
@@ -253,12 +528,21 @@ const Profile = () => {
       {loading && <div className="loading">Loading profile...</div>}
 
       {!loading && !error && (
-        <div className="profile-posts">
-          <h2>Posts</h2>
+        <div>
           {userPosts.length === 0 ? (
-            <p className="no-posts">No posts yet</p>
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '60px 32px',
+              textAlign: 'center',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>📭</div>
+              <p style={{ fontSize: '18px', marginBottom: '8px', color: '#1e293b', fontWeight: '600' }}>No posts yet</p>
+              <p style={{ fontSize: '14px', color: '#64748b' }}>This user hasn't shared any posts yet</p>
+            </div>
           ) : (
-            <div className="posts-list">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {userPosts.map((post) => {
                 const name = getUserDisplayName(post.user);
                 const handle = `@${getUserHandle(post.user)}`;
@@ -301,6 +585,48 @@ const Profile = () => {
                         <video src={post.mediaUrl} controls />
                       </div>
                     )}
+                    <div className="post-actions">
+                      <button
+                        className={`action-btn ${likedPosts[post.id] ? 'liked' : ''}`}
+                        onClick={() => handleToggleLike(post.id)}
+                        title="Like"
+                        disabled={Boolean(likeLoading[post.id])}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill={likedPosts[post.id] ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                        </svg>
+                        {(likeCounts[post.id] || 0) > 0 && <span>{likeCounts[post.id]}</span>}
+                      </button>
+                      <button
+                        className="action-btn"
+                        onClick={() => handleToggleComments(post.id)}
+                        title="Comment"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        {(commentCounts[post.id] || 0) > 0 && <span>{commentCounts[post.id]}</span>}
+                      </button>
+                      <button
+                        className="action-btn"
+                        onClick={() => handleShare(post.id, post.content)}
+                        title="Share"
+                      >
+                        {shareIcon ? (
+                          <img src={shareIcon} alt="Share" style={{ width: '18px', height: '18px', mixBlendMode: 'multiply', opacity: 0.7 }} />
+                        ) : (
+                          <span>↗</span>
+                        )}
+                      </button>
+                    </div>
+                    {openCommentsPostId === post.id && (
+                      <CommentSection
+                        postId={post.id}
+                        currentUserId={currentUserId}
+                        showToast={(message) => openAlert(message, 'Comments')}
+                        onCommentAdded={() => loadLikeAndCommentInfo(post.id)}
+                      />
+                    )}
                   </article>
                 );
               })}
@@ -308,8 +634,7 @@ const Profile = () => {
           )}
         </div>
       )}
-
-      <Dialog
+      </div>      <Dialog
         isOpen={dialogState.open}
         title={dialogState.title}
         message={dialogState.message}

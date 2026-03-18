@@ -205,7 +205,28 @@ export const adminService = {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to update landing content');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to update landing content');
+    }
+
+    return response.json();
+  },
+
+  async changeAdminPassword(payload) {
+    const token = authService.getToken();
+
+    const response = await fetch(`${API_CONFIG.ENDPOINTS.CONTENT}/admin/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to change admin password');
     }
 
     return response.json();

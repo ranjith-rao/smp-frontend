@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { authService } from '../../services/authService';
 import apiFetch from '../../utils/apiFetch';
 import { API_CONFIG } from '../../config/api';
+import '../../styles/AdminPages.css';
 
 const AdminDashboard = () => {
   const [stats, setStats] = useState({
@@ -59,34 +60,36 @@ const AdminDashboard = () => {
   };
 
   return (
-    <div>
-      <h1 style={{ color: '#1e293b', marginTop: 0 }}>Welcome to Admin Dashboard</h1>
-      <p style={{ color: '#64748b', fontSize: '16px' }}>Select an option from the sidebar to manage your platform.</p>
+    <div className="admin-page admin-dashboard-page">
+      <div className="admin-page-header stacked">
+        <h1 className="admin-page-title">Welcome to Admin Dashboard</h1>
+        <p className="admin-page-subtitle">Select an option from the sidebar to manage your platform.</p>
+      </div>
       
       {/* Dashboard Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginTop: '30px' }}>
-        <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-          <h3 style={{ color: '#64748b', margin: '0 0 10px 0', fontSize: '14px' }}>Total Users</h3>
-          <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#6366f1', margin: 0 }}>
+      <div className="admin-stats-grid">
+        <div className="admin-stat-card">
+          <h3>Total Users</h3>
+          <p className="admin-stat-value primary">
             {stats.loading ? '...' : stats.totalUsers}
           </p>
         </div>
-        <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-          <h3 style={{ color: '#64748b', margin: '0 0 10px 0', fontSize: '14px' }}>Total Posts</h3>
-          <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#10b981', margin: 0 }}>
+        <div className="admin-stat-card">
+          <h3>Total Posts</h3>
+          <p className="admin-stat-value success">
             {stats.loading ? '...' : stats.totalPosts}
           </p>
         </div>
-        <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-          <h3 style={{ color: '#64748b', margin: '0 0 10px 0', fontSize: '14px' }}>Pending Reports</h3>
-          <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#f59e0b', margin: 0 }}>
+        <div className="admin-stat-card">
+          <h3>Pending Reports</h3>
+          <p className="admin-stat-value warning">
             {stats.loading ? '...' : stats.pendingReports}
           </p>
         </div>
       </div>
 
       {stats.error && (
-        <div style={{ marginTop: '20px', padding: '12px', background: '#fee2e2', color: '#dc2626', borderRadius: '8px' }}>
+        <div className="admin-banner error">
           Error loading stats: {stats.error}
         </div>
       )}

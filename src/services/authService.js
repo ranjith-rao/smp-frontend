@@ -132,11 +132,16 @@ export const authService = {
     return data;
   },
 
-  logout() {
+  logout(options = {}) {
+    const { redirect = false, currentPath = '' } = options;
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
     // Emit logout event for other parts of the app
     window.dispatchEvent(new CustomEvent('auth:logout'));
+
+    if (redirect) {
+      this.redirectToLogin(currentPath);
+    }
   },
 
   getToken() {
@@ -145,6 +150,21 @@ export const authService = {
 
   getRole() {
     return localStorage.getItem('userRole');
+  },
+
+  getLoginRoute(currentPath = '') {
+    const role = localStorage.getItem('userRole');
+    if (role === 'ADMIN' || String(currentPath).startsWith('/admin')) {
+      return '/admin/login';
+    }
+    return '/login';
+  },
+
+  redirectToLogin(currentPath = '') {
+    const target = this.getLoginRoute(currentPath || window.location.pathname);
+    if (window.location.pathname !== target) {
+      window.location.replace(target);
+    }
   },
 
   getUserId() {

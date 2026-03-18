@@ -1,7 +1,8 @@
 .admin-table-container {
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
   overflow: hidden;
 }
 
@@ -9,16 +10,17 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   gap: 12px;
   flex-wrap: wrap;
 }
 
 .admin-table-count {
   color: #64748b;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .admin-table-right-controls {
@@ -29,13 +31,13 @@
 }
 
 .admin-table-refresh {
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: white;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: #475569;
   transition: all 0.2s ease;
   white-space: nowrap;
@@ -61,12 +63,12 @@
 
 .admin-table-pagination button,
 .admin-table-pagination select {
-  padding: 6px 10px;
-  border-radius: 6px;
+  padding: 7px 11px;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: white;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .admin-table-pagination button:disabled {
@@ -92,16 +94,19 @@
 
 .admin-table th,
 .admin-table td {
-  padding: 12px;
+  padding: 14px 12px;
   text-align: left;
-  font-size: 14px;
+  font-size: 15px;
   color: #1e293b;
   vertical-align: top;
 }
 
 .admin-table th {
   color: #64748b;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .admin-table-sort {
@@ -118,6 +123,11 @@
 
 .admin-table tr {
   border-bottom: 1px solid #e2e8f0;
+  transition: background-color 0.15s ease;
+}
+
+.admin-table tbody tr:hover {
+  background: #fafbff;
 }
 
 .admin-table tr:last-child {
@@ -125,9 +135,10 @@
 }
 
 .admin-table-empty {
-  padding: 30px;
+  padding: 32px;
   text-align: center;
   color: #94a3b8;
+  font-size: 15px;
 }
 
 .admin-table-actions {
@@ -137,7 +148,7 @@
 }
 
 .admin-table-pill {
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;

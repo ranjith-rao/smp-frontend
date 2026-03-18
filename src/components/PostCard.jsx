@@ -1,4 +1,5 @@
 import EmojiPicker from 'emoji-picker-react';
+import { useNavigate } from 'react-router-dom';
 import CommentSection from './CommentSection';
 import { getUserHandle, getUserDisplayName } from '../utils/userHelpers';
 
@@ -33,8 +34,10 @@ const PostCard = ({
   onCommentAdded = () => {},
   openCommentsPostId = null,
   showToast = () => {},
-  showMenu = true
+  showMenu = true,
+  onHashtagClick = () => {}
 }) => {
+  const navigate = useNavigate();
   const isEditing = editingPostId === post.id;
   const isMenuOpen = openMenuPostId === post.id;
   
@@ -47,6 +50,24 @@ const PostCard = ({
   const pageName = post.page?.name;
   const pageAvatar = post.page?.profileImageUrl;
 
+  const handleContentClick = (event) => {
+    const hashtagLink = event.target.closest('[data-hashtag]');
+    if (!hashtagLink) return;
+    event.preventDefault();
+    const fromText = hashtagLink.textContent?.trim();
+    const fromDataAttr = hashtagLink.getAttribute('data-hashtag');
+    const tag = fromText?.startsWith('#') ? fromText : fromDataAttr;
+    if (!tag) return;
+    onHashtagClick(tag);
+  };
+
+  const handleImageLoadError = (event) => {
+    const img = event.currentTarget;
+    if (img.dataset.fallbackApplied === '1') return;
+    img.dataset.fallbackApplied = '1';
+    img.src = `https://picsum.photos/seed/post-${post.id}/1200/800`;
+  };
+
   return (
     <article id={`post-${post.id}`} className="post-card">
       <div className="post-header">
@@ -55,24 +76,53 @@ const PostCard = ({
             <>
               <div className="dual-avatar">
                 <div className="post-avatar page-avatar">
-                  {pageAvatar ? <img src={pageAvatar} alt={pageName} /> : pageName?.[0]}
+                  {pageAvatar ? <img src={pageAvatar} alt={pageName} loading="lazy" decoding="async" /> : pageName?.[0]}
                 </div>
                 <div className="post-avatar user-avatar">
-                  {avatar ? <img src={avatar} alt={name} /> : name[0]}
+                  {avatar ? <img src={avatar} alt={name} loading="lazy" decoding="async" /> : name[0]}
                 </div>
               </div>
-              <div className="post-meta">
-                <h4>{pageName} <span style={{ fontWeight: 'normal', color: '#64748b' }}>via</span> {name}</h4>
+              <div className="post-meta" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <h4>
+                  <span 
+                    onClick={() => navigate(`/pages/${post.pageId}`)}
+                    style={{ cursor: 'pointer', fontWeight: '600', color: '#0f1419' }}
+                    onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                    onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                  >
+                    {pageName}
+                  </span>
+                  {' '}
+                  <span style={{ fontWeight: 'normal', color: '#64748b' }}>via</span>
+                  {' '}
+                  <span 
+                    onClick={() => navigate(`/profile/${post.userId}`)}
+                    style={{ cursor: 'pointer', fontWeight: '600', color: '#0f1419' }}
+                    onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                    onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                  >
+                    {name}
+                  </span>
+                </h4>
                 <span>{handle} • {formatDate(post.createdAt)}</span>
               </div>
             </>
           ) : (
             <>
               <div className="post-avatar">
-                {avatar ? <img src={avatar} alt={name} /> : name[0]}
+                {avatar ? <img src={avatar} alt={name} loading="lazy" decoding="async" /> : name[0]}
               </div>
               <div className="post-meta">
-                <h4>{name}</h4>
+                <h4>
+                  <span 
+                    onClick={() => navigate(`/profile/${post.userId}`)}
+                    style={{ cursor: 'pointer', fontWeight: '600', color: '#0f1419' }}
+                    onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                    onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                  >
+                    {name}
+                  </span>
+                </h4>
                 <span>{handle} • {formatDate(post.createdAt)}</span>
               </div>
             </>
@@ -138,7 +188,7 @@ const PostCard = ({
             <div className="post-media" style={{ position: 'relative' }}>
               {editMedia.type === 'image' ? (
                 <a href={editMedia.data} target="_blank" rel="noreferrer">
-                  <img src={editMedia.data} alt="Edit media preview" />
+                  <img src={editMedia.data} alt="Edit media preview" loading="lazy" decoding="async" />
                 </a>
               ) : (
                 <video src={editMedia.data} controls />
@@ -236,6 +286,7 @@ const PostCard = ({
         post.content && (
           <div
             style={{ margin: 0, color: '#1e293b', fontSize: '15px', lineHeight: '1.5' }}
+            onClick={handleContentClick}
             dangerouslySetInnerHTML={{ __html: markdownToHtml(post.content) }}
           />
         )
@@ -243,7 +294,7 @@ const PostCard = ({
       {!isEditing && post.mediaUrl && post.mediaType === 'image' && (
         <div className="post-media">
           <a href={post.mediaUrl} target="_blank" rel="noreferrer">
-            <img src={post.mediaUrl} alt="Post" />
+            <img src={post.mediaUrl} alt="Post" loading="lazy" decoding="async" onError={handleImageLoadError} />
           </a>
         </div>
       )}

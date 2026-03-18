@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { adminService } from '../../services/adminService';
 import AdminTable from '../../components/AdminTable';
 import Dialog from '../../components/Dialog';
+import '../../styles/AdminPages.css';
 
 const AdminQueries = () => {
   const [queries, setQueries] = useState([]);
@@ -135,19 +136,19 @@ const AdminQueries = () => {
         <div className="admin-table-actions">
           <button
             onClick={() => setSelectedQuery(query)}
-            style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer' }}
+            className="admin-action-btn"
           >
             View
           </button>
           <button
             onClick={() => handleReply(query)}
-            style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #6366f1', background: '#6366f1', color: 'white', cursor: 'pointer' }}
+            className="admin-action-btn primary"
           >
             Reply
           </button>
           <button
             onClick={() => handleDelete(query.id)}
-            style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid #ef4444', background: '#ef4444', color: 'white', cursor: 'pointer' }}
+            className="admin-action-btn danger-fill"
           >
             Delete
           </button>
@@ -157,27 +158,29 @@ const AdminQueries = () => {
   ], [handleDelete, handleReply]);
 
   return (
-    <div>
-      <h1 style={{ color: '#1e293b', marginTop: 0 }}>Manage Queries</h1>
-      <p style={{ color: '#64748b', marginBottom: '20px' }}>View, reply, and delete user contact queries.</p>
+    <div className="admin-page">
+      <div className="admin-page-header stacked">
+        <h1 className="admin-page-title">Manage Queries</h1>
+        <p className="admin-page-subtitle">View, reply, and delete user contact queries.</p>
+      </div>
 
-      {error && <p style={{ color: '#e74c3c', marginBottom: '15px' }}>{error}</p>}
-      {loading && <p style={{ color: '#6366f1' }}>Loading...</p>}
+      {error && <div className="admin-banner error">{error}</div>}
+      {loading && <div className="admin-banner info">Loading...</div>}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+      <div className="admin-toolbar">
         <input
           type="text"
           placeholder="Search by name, email, subject, or message..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ padding: '10px', width: '320px', borderRadius: '5px', border: '1px solid #cbd5e1' }}
+          className="admin-search-input"
         />
-        <div style={{ color: '#64748b', fontSize: '13px' }}>
+        <div className="admin-count-text">
           Showing {filteredQueries.length} of {queries.length}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+      <div className="admin-grid-two">
         {/* Queries Table */}
         <AdminTable
           columns={columns}
@@ -188,10 +191,10 @@ const AdminQueries = () => {
         />
 
         {/* Query Details */}
-        <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', padding: '20px' }}>
-          <h3 style={{ marginTop: 0, color: '#1e293b' }}>Query Details</h3>
+        <div className="admin-card admin-detail-card">
+          <h3>Query Details</h3>
           {!selectedQuery ? (
-            <p style={{ color: '#94a3b8' }}>Select a query to view details.</p>
+            <p className="admin-muted">Select a query to view details.</p>
           ) : (
             <div>
               <p><strong>Name:</strong> {selectedQuery.name}</p>
@@ -199,7 +202,7 @@ const AdminQueries = () => {
               <p><strong>Subject:</strong> {selectedQuery.subject || '—'}</p>
               <p><strong>Date:</strong> {selectedQuery.createdAt ? new Date(selectedQuery.createdAt).toLocaleString() : '—'}</p>
               <p><strong>Message:</strong></p>
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', color: '#334155' }}>
+              <div className="admin-message-box">
                 {selectedQuery.message || '—'}
               </div>
             </div>

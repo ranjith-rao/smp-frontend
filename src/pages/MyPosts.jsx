@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import apiFetch from '../utils/apiFetch';
 import API_CONFIG from '../config/api';
 import { authService } from '../services/authService';
+import AppHeader from '../components/AppHeader';
 import PostCard from '../components/PostCard';
 import Dialog from '../components/Dialog';
 import Toast from '../components/Toast';
@@ -333,40 +334,33 @@ const MyPosts = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '20px'
+      background: '#f8fafc'
     }}>
+      <AppHeader showPageNav={false} />
+      
       <div style={{
         maxWidth: '800px',
-        margin: '0 auto'
+        margin: '0 auto',
+        padding: '24px 20px'
       }}>
-        {/* Header */}
+        {/* Breadcrumbs */}
         <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '24px',
           background: 'white',
           borderRadius: '12px',
-          padding: '20px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+          padding: '12px 20px',
+          marginBottom: '24px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          fontSize: '14px',
+          color: '#64748b'
         }}>
-          <h1 style={{ margin: 0, color: '#1e293b', fontSize: '24px' }}>📝 My Posts</h1>
-          <button
+          <span 
             onClick={() => navigate('/home')}
-            style={{
-              padding: '8px 16px',
-              background: '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: '600'
-            }}
+            style={{ cursor: 'pointer', color: '#667eea', fontWeight: '500' }}
           >
-            ← Back
-          </button>
+            Home
+          </span>
+          <span style={{ margin: '0 8px' }}>›</span>
+          <span style={{ color: '#1e293b', fontWeight: '600' }}>My Posts</span>
         </div>
 
         {/* Posts */}

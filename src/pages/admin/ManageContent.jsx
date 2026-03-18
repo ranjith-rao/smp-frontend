@@ -1,14 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { adminService } from '../../services/adminService';
+import { useSiteSettings } from '../../context/SiteSettingsContext';
+import '../../styles/AdminManageContent.css';
+
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const emptyFeature = { icon: '', title: '', description: '' };
+const emptyStat = { value: '', label: '' };
+const defaultAboutBullets = [
+  '✨ Clean and intuitive user interface',
+  '🔒 Privacy-first approach to social networking',
+  '💬 Real-time messaging and notifications',
+];
 
 const ManageContent = () => {
+  const { refresh } = useSiteSettings();
   const [formData, setFormData] = useState({
-    homeTitle: '',
-    homeSubtitle: '',
-    homeDescription: '',
-    contactEmail: '',
-    contactPhone: '',
+    heroBadge: '',
+    heroTitle: '',
+    heroSubtitle: '',
+    heroImageUrl: '',
+    statsJson: [],
+    aboutTitle: '',
+    aboutDescription: '',
+    aboutBulletsJson: [],
+    aboutImageUrl: '',
+    featuresJson: [],
+    ctaTitle: '',
+    ctaDescription: '',
+    ctaButtonText: '',
   });
+  const [newBullet, setNewBullet] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -21,11 +48,21 @@ const ManageContent = () => {
       try {
         const data = await adminService.getLandingContent();
         setFormData({
-          homeTitle: data.homeTitle || '',
-          homeSubtitle: data.homeSubtitle || '',
-          homeDescription: data.homeDescription || '',
-          contactEmail: data.contactEmail || '',
-          contactPhone: data.contactPhone || '',
+          heroBadge: data.heroBadge || '',
+          heroTitle: data.heroTitle || data.homeTitle || '',
+          heroSubtitle: data.heroSubtitle || data.homeSubtitle || '',
+          heroImageUrl: data.heroImageUrl || '',
+          statsJson: Array.isArray(data.statsJson) ? data.statsJson : [],
+          aboutTitle: data.aboutTitle || 'Build your community here',
+          aboutDescription: data.aboutDescription || data.homeDescription || '',
+          aboutBulletsJson: Array.isArray(data.aboutBulletsJson) && data.aboutBulletsJson.length > 0
+            ? data.aboutBulletsJson
+            : defaultAboutBullets,
+          aboutImageUrl: data.aboutImageUrl || '',
+          featuresJson: Array.isArray(data.featuresJson) ? data.featuresJson : [],
+          ctaTitle: data.ctaTitle || '',
+          ctaDescription: data.ctaDescription || '',
+          ctaButtonText: data.ctaButtonText || 'Create your account',
         });
       } catch (err) {
         setError(err.message || 'Failed to load landing content');
@@ -39,9 +76,27 @@ const ManageContent = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageUpload = (field) => async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setFormData((prev) => ({ ...prev, [field]: dataUrl }));
+  };
+
+  const updateFeature = (index, field, value) => {
     setFormData((prev) => ({
       ...prev,
-      [name]: value,
+      featuresJson: prev.featuresJson.map((feature, idx) => (idx === index ? { ...feature, [field]: value } : feature)),
+    }));
+  };
+
+  const updateStat = (index, field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      statsJson: prev.statsJson.map((item, idx) => (idx === index ? { ...item, [field]: value } : item)),
     }));
   };
 
@@ -52,6 +107,7 @@ const ManageContent = () => {
     setSuccess('');
     try {
       await adminService.updateLandingContent(formData);
+      await refresh();
       setSuccess('Landing page content updated successfully!');
     } catch (err) {
       setError(err.message || 'Failed to update content');
@@ -61,90 +117,88 @@ const ManageContent = () => {
   };
 
   return (
-    <div>
-      <h1 style={{ color: '#1e293b', marginTop: 0 }}>Manage Menu Contents</h1>
-      <p style={{ color: '#64748b', marginBottom: '20px' }}>Edit the Home and Contact Us sections on the landing page.</p>
+    <div className="manage-content-page">
+      <h1 className="manage-content-title">Manage Landing Content</h1>
+      <p className="manage-content-subtitle">Update each landing section independently: Hero, Stats, About, Features, and CTA.</p>
 
-      {error && <p style={{ color: '#e74c3c', marginBottom: '15px' }}>{error}</p>}
-      {success && <p style={{ color: '#22c55e', marginBottom: '15px' }}>{success}</p>}
-      {loading && <p style={{ color: '#6366f1' }}>Loading...</p>}
+      {error && <p className="manage-content-banner error">{error}</p>}
+      {success && <p className="manage-content-banner success">{success}</p>}
+      {loading && <p className="manage-content-banner info">Loading...</p>}
 
-      <form onSubmit={handleUpdate} style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Home Title</label>
-            <input
-              name="homeTitle"
-              value={formData.homeTitle}
-              onChange={handleChange}
-              placeholder="Welcome to NEXUS"
-              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-            />
+      <form onSubmit={handleUpdate} className="manage-content-form">
+        <section className="manage-section">
+          <h3 className="manage-section-title">Hero Section</h3>
+          <div className="manage-grid-2">
+            <input name="heroBadge" value={formData.heroBadge} onChange={handleChange} placeholder="Hero badge text" />
+            <input name="heroTitle" value={formData.heroTitle} onChange={handleChange} placeholder="Hero title" />
+          </div>
+          <textarea name="heroSubtitle" value={formData.heroSubtitle} onChange={handleChange} placeholder="Hero subtitle" rows={3} />
+          <input name="heroImageUrl" value={formData.heroImageUrl} onChange={handleChange} placeholder="Hero image URL" />
+          <input type="file" accept="image/*" onChange={handleImageUpload('heroImageUrl')} className="file-input" />
+        </section>
+
+        <section className="manage-section">
+          <h3 className="manage-section-title">Stats Section</h3>
+          {formData.statsJson.map((stat, index) => (
+            <div key={`stat-${index}`} className="manage-row-3">
+              <input value={stat.value || ''} onChange={(e) => updateStat(index, 'value', e.target.value)} placeholder="Value (e.g. 120k+)" />
+              <input value={stat.label || ''} onChange={(e) => updateStat(index, 'label', e.target.value)} placeholder="Label (e.g. Active Members)" />
+              <button type="button" onClick={() => setFormData((prev) => ({ ...prev, statsJson: prev.statsJson.filter((_, idx) => idx !== index) }))} className="btn-remove">×</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setFormData((prev) => ({ ...prev, statsJson: [...prev.statsJson, emptyStat] }))} className="btn-add-outline">+ Add Stat</button>
+        </section>
+
+        <section className="manage-section">
+          <h3 className="manage-section-title">About Section</h3>
+          <input name="aboutTitle" value={formData.aboutTitle} onChange={handleChange} placeholder="About heading" />
+          <textarea name="aboutDescription" value={formData.aboutDescription} onChange={handleChange} placeholder="About description" rows={4} />
+
+          <div className="manage-inline-add">
+            <input value={newBullet} onChange={(e) => setNewBullet(e.target.value)} placeholder="Add bullet point" />
+            <button type="button" onClick={() => {
+              if (!newBullet.trim()) return;
+              setFormData((prev) => ({ ...prev, aboutBulletsJson: [...prev.aboutBulletsJson, newBullet.trim()] }));
+              setNewBullet('');
+            }} className="btn-add-square">+</button>
           </div>
 
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Home Subtitle</label>
-            <input
-              name="homeSubtitle"
-              value={formData.homeSubtitle}
-              onChange={handleChange}
-              placeholder="The social platform where connections matter"
-              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-            />
-          </div>
-        </div>
-
-        <div style={{ marginTop: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Home Description</label>
-          <textarea
-            name="homeDescription"
-            value={formData.homeDescription}
-            onChange={handleChange}
-            placeholder="Describe the purpose of NEXUS..."
-            rows={4}
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-          />
-        </div>
-
-        <h3 style={{ marginTop: '30px', color: '#1e293b' }}>Contact Us Section</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Contact Email</label>
-            <input
-              name="contactEmail"
-              value={formData.contactEmail}
-              onChange={handleChange}
-              placeholder="support@nexus.com"
-              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-            />
+          <div className="manage-list-grid">
+            {formData.aboutBulletsJson.map((item, index) => (
+              <div key={`bullet-${index}`} className="manage-list-row">
+                <input value={item} onChange={(e) => setFormData((prev) => ({ ...prev, aboutBulletsJson: prev.aboutBulletsJson.map((v, idx) => (idx === index ? e.target.value : v)) }))} />
+                <button type="button" onClick={() => setFormData((prev) => ({ ...prev, aboutBulletsJson: prev.aboutBulletsJson.filter((_, idx) => idx !== index) }))} className="btn-remove">×</button>
+              </div>
+            ))}
           </div>
 
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Contact Phone</label>
-            <input
-              name="contactPhone"
-              value={formData.contactPhone}
-              onChange={handleChange}
-              placeholder="+1 (555) 123-4567"
-              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-            />
-          </div>
-        </div>
+          <input name="aboutImageUrl" value={formData.aboutImageUrl} onChange={handleChange} placeholder="About section image URL" />
+          <input type="file" accept="image/*" onChange={handleImageUpload('aboutImageUrl')} className="file-input" />
+        </section>
 
-        <button
-          type="submit"
-          disabled={saving}
-          style={{
-            marginTop: '24px',
-            padding: '12px 18px',
-            backgroundColor: '#6366f1',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: '600',
-            cursor: 'pointer'
-          }}
-        >
+        <section className="manage-section">
+          <h3 className="manage-section-title">Features Section</h3>
+          {formData.featuresJson.map((feature, index) => (
+            <div key={`feature-${index}`} className="feature-card-admin">
+              <div className="manage-row-feature-head">
+                <input value={feature.icon || ''} onChange={(e) => updateFeature(index, 'icon', e.target.value)} placeholder="Icon" />
+                <input value={feature.title || ''} onChange={(e) => updateFeature(index, 'title', e.target.value)} placeholder="Feature title" />
+                <button type="button" onClick={() => setFormData((prev) => ({ ...prev, featuresJson: prev.featuresJson.filter((_, idx) => idx !== index) }))} className="btn-remove">×</button>
+              </div>
+              <textarea value={feature.description || ''} onChange={(e) => updateFeature(index, 'description', e.target.value)} placeholder="Feature description" rows={3} />
+            </div>
+          ))}
+          <button type="button" onClick={() => setFormData((prev) => ({ ...prev, featuresJson: [...prev.featuresJson, emptyFeature] }))} className="btn-add-outline">+ Add Feature</button>
+        </section>
+
+        <section className="manage-section">
+          <h3 className="manage-section-title">CTA Section</h3>
+          <input name="ctaTitle" value={formData.ctaTitle} onChange={handleChange} placeholder="CTA title" />
+          <textarea name="ctaDescription" value={formData.ctaDescription} onChange={handleChange} placeholder="CTA description" rows={3} />
+          <input name="ctaButtonText" value={formData.ctaButtonText} onChange={handleChange} placeholder="CTA button text" />
+        </section>
+
+        <button type="submit" disabled={saving} className="btn-save-content">
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
       </form>

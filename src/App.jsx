@@ -1,4 +1,6 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import './App.css';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import LandingPage from './pages/LandingPage';
@@ -25,12 +27,67 @@ import AdminReportDetails from './pages/admin/AdminReportDetails';
 import AdminQueries from './pages/admin/AdminQueries';
 import ManageContent from './pages/admin/ManageContent';
 import AdminPages from './pages/admin/AdminPages';
+import AdminSettings from './pages/admin/AdminSettings';
+import LegalPage from './pages/LegalPage';
 import ProtectedUserRoute from './components/ProtectedUserRoute';
 import ProtectedAdminRoute from './components/ProtectedAdminRoute';
+import { authService } from './services/authService';
+
+const SessionExpiryWatcher = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const redirectToLogin = () => {
+      const loginRoute = authService.getLoginRoute(location.pathname);
+      if (location.pathname !== loginRoute) {
+        navigate(loginRoute, { replace: true });
+      }
+    };
+
+    const checkSession = () => {
+      const token = authService.getToken();
+      if (!token) return;
+
+      if (!authService.isLoggedIn()) {
+        redirectToLogin();
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSession();
+      }
+    };
+
+    const onLogout = () => {
+      redirectToLogin();
+    };
+
+    checkSession();
+
+    const intervalId = window.setInterval(checkSession, 60000);
+    window.addEventListener('focus', checkSession);
+    window.addEventListener('pageshow', checkSession);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('auth:logout', onLogout);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', checkSession);
+      window.removeEventListener('pageshow', checkSession);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('auth:logout', onLogout);
+    };
+  }, [location.pathname, navigate]);
+
+  return null;
+};
 
 function App() {
   return (
     <Router>
+      <SessionExpiryWatcher />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
@@ -38,6 +95,8 @@ function App() {
         <Route path="/verify" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/terms-and-conditions" element={<LegalPage />} />
+        <Route path="/privacy-policy" element={<LegalPage />} />
         
         {/* Protected User Home Route */}
         <Route path="/home" element={
@@ -69,8 +128,16 @@ function App() {
             <MyPosts />
           </ProtectedUserRoute>
         } />
-        <Route path="/pages/explore" element={<ExplorePage />} />
-        <Route path="/pages/:pageId" element={<PageProfile />} />
+        <Route path="/pages/explore" element={
+          <ProtectedUserRoute>
+            <ExplorePage />
+          </ProtectedUserRoute>
+        } />
+        <Route path="/pages/:pageId" element={
+          <ProtectedUserRoute>
+            <PageProfile />
+          </ProtectedUserRoute>
+        } />
         <Route path="/pages/:pageId/post" element={
           <ProtectedUserRoute>
             <PageCreatePost />
@@ -100,6 +167,7 @@ function App() {
           <Route path='reports/:reportId' element={<AdminReportDetails />} />
           <Route path='queries' element={<AdminQueries />} />
           <Route path='content' element={<ManageContent />} />
+          <Route path='settings' element={<AdminSettings />} />
         </Route>
       </Routes>
     </Router>

@@ -37,6 +37,28 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.auth-logo {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: #0284c7;
+  letter-spacing: -1px;
+  margin: 0 0 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1;
+}
+
+.auth-logo-image {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 .login-form {
   margin-top: 2rem;
   display: flex;
@@ -81,5 +103,12 @@ a {
 }
 
 a:hover {
-  text-decoration: underline;
+  text-decoration: none;
+}
+
+button,
+button:hover,
+button:focus,
+button:active {
+  text-decoration: none;
 }

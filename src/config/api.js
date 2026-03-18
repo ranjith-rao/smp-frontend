@@ -1,7 +1,7 @@
 /**
  * API Configuration
  * Centralized URL configuration for all API calls
- */
++ */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 

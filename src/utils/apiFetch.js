@@ -8,13 +8,25 @@ export const apiFetch = async (url, options = {}) => {
   try {
     const response = await fetch(url, options);
 
-    // Handle 401 Unauthorized - token expired or invalid
-    if (response.status === 401) {
-      // Logout user and redirect to login
-      authService.logout();
-      window.location.href = '/login';
-      // Return early to prevent further processing
-      return { ok: false, status: 401, message: 'Session expired. Please login again.' };
+    const token = authService.getToken();
+    const isUnauthorized = response.status === 401;
+    const isForbidden = response.status === 403;
+
+    let isTokenAuthError = false;
+    if (isForbidden) {
+      try {
+        const errorData = await response.clone().json();
+        const message = String(errorData?.message || '').toLowerCase();
+        isTokenAuthError = message.includes('invalid or expired token') || message.includes('token expired');
+      } catch {
+        isTokenAuthError = false;
+      }
+    }
+
+    // Handle expired/invalid auth globally and send user to the right login screen.
+    if (token && (isUnauthorized || isTokenAuthError)) {
+      authService.logout({ redirect: true, currentPath: window.location.pathname });
+      throw new Error('Session expired. Please login again.');
     }
 
     return response;

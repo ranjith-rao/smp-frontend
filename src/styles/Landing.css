@@ -29,6 +29,15 @@ body {
   font-weight: 800;
   color: #6366f1;
   letter-spacing: -0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-logo-image {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
 }
 
 .nav-menu {

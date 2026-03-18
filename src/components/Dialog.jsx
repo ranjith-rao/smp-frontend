@@ -22,8 +22,8 @@ const Dialog = ({
   const isDisabled = showInput && requireDeleteConfirmation && inputValue !== 'DELETE';
 
   return (
-    <div className="dialog-overlay" role="presentation">
-      <div className="dialog-card" role="dialog" aria-modal="true">
+    <div className="dialog-overlay" role="presentation" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog-card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         {title && <h3 className="dialog-title">{title}</h3>}
         {message && <p className="dialog-message">{message}</p>}
         {showInput && (

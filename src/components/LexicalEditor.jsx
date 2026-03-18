@@ -14,7 +14,9 @@ import {
   $isRangeSelection,
   FORMAT_TEXT_COMMAND,
   SELECTION_CHANGE_COMMAND,
+  $getRoot,
   $createParagraphNode,
+  $createTextNode,
 } from 'lexical';
 import { $setBlocksType } from '@lexical/selection';
 import { $createHeadingNode, $isHeadingNode } from '@lexical/rich-text';
@@ -79,8 +81,8 @@ function FloatingTextFormatToolbarPlugin() {
           const rect = range.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0) {
             setToolbarPosition({
-              top: rect.top + window.scrollY - 52,
-              left: rect.left + window.scrollX + rect.width / 2,
+              top: rect.top - 52,
+              left: rect.left + rect.width / 2,
               show: true,
             });
           }
@@ -156,11 +158,11 @@ function FloatingTextFormatToolbarPlugin() {
     <div
       className="lexical-floating-toolbar"
       style={{
-        position: 'absolute',
+        position: 'fixed',
         top: `${toolbarPosition.top}px`,
         left: `${toolbarPosition.left}px`,
         transform: 'translateX(-50%)',
-        zIndex: 100,
+        zIndex: 3000,
       }}
       onMouseDown={(e) => e.preventDefault()}
     >
@@ -226,68 +228,42 @@ function FloatingTextFormatToolbarPlugin() {
   );
 }
 
-// HTML Plugin to get/set HTML content
-function HtmlPlugin({ onChange, initialHtml }) {
+function InitialContentPlugin({ initialContent }) {
   const [editor] = useLexicalComposerContext();
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
-    if (initialHtml) {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+
+    const plainText = (() => {
+      if (!initialContent) return '';
       const parser = new DOMParser();
-      const dom = parser.parseFromString(initialHtml, 'text/html');
-      const nodes = $generateNodesFromDOM(editor, dom);
-      
-      editor.update(() => {
-        const root = $getRoot();
-        root.clear();
-        root.append(...nodes);
-      });
-    }
-  }, []);
+      const dom = parser.parseFromString(initialContent, 'text/html');
+      return (dom.body?.textContent || '').trim();
+    })();
 
-  return (
-    <OnChangePlugin
-      onChange={(editorState) => {
-        editorState.read(() => {
-          const root = $getRoot();
-          const htmlString = $generateHtmlFromNodes(editor);
-          onChange(htmlString);
-        });
-      }}
-    />
-  );
-}
+    editor.update(() => {
+      const root = $getRoot();
+      root.clear();
 
-// Helper to convert Lexical state to HTML
-function $generateHtmlFromNodes(editor) {
-  const root = editor.getEditorState()._nodeMap;
-  let html = '';
-  
-  editor.getEditorState().read(() => {
-    const rootNode = $getRoot();
-    html = rootNode.getTextContent() ? rootNode.__cachedText : '';
-    // This is simplified - in production you'd want proper HTML serialization
-    // For now, we'll use the native innerHTML from the contentEditable
-  });
-  
-  return html;
-}
+      const paragraph = $createParagraphNode();
+      if (plainText) {
+        paragraph.append($createTextNode(plainText));
+      }
+      root.append(paragraph);
+    });
+  }, [editor, initialContent]);
 
-function $getRoot() {
-  return window.lexicalEditor?.getEditorState().read(() => {
-    const { $getRoot } = require('lexical');
-    return $getRoot();
-  });
-}
-
-function $generateNodesFromDOM(editor, dom) {
-  // Simplified DOM to Lexical conversion
-  return [];
+  return null;
 }
 
 export default function LexicalEditor({ 
   placeholder, 
   onChange, 
-  initialContent = ''
+  initialContent = '',
+  contentEditableClassName = '',
+  contentEditableStyle = {},
 }) {
   const initialConfig = {
     namespace: 'SocialMediaPost',
@@ -314,12 +290,11 @@ export default function LexicalEditor({
     nodes: [HeadingNode, ListNode, ListItemNode],
   };
 
-  const handleChange = (editorState) => {
+  const handleChange = (editorState, editor) => {
     editorState.read(() => {
-      const editorElement = document.querySelector('.lexical-content-editable');
-      if (editorElement && onChange) {
-        onChange(editorElement.innerHTML);
-      }
+      if (!onChange) return;
+      const editorElement = editor.getRootElement();
+      onChange(editorElement?.innerHTML || '');
     });
   };
 
@@ -327,10 +302,16 @@ export default function LexicalEditor({
     <LexicalComposer initialConfig={initialConfig}>
       <div className="lexical-editor-container">
         <RichTextPlugin
-          contentEditable={<ContentEditable className="lexical-content-editable" />}
+          contentEditable={
+            <ContentEditable
+              className={`lexical-content-editable ${contentEditableClassName}`.trim()}
+              style={contentEditableStyle}
+            />
+          }
           placeholder={<div className="lexical-placeholder">{placeholder}</div>}
           ErrorBoundary={LexicalErrorBoundary}
         />
+        <InitialContentPlugin initialContent={initialContent} />
         <OnChangePlugin onChange={handleChange} />
         <HistoryPlugin />
         <ListPlugin />

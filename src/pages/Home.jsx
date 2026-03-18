@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import EmojiPicker from 'emoji-picker-react';
 import { authService } from '../services/authService';
 import { API_CONFIG } from '../config/api';
@@ -14,6 +14,8 @@ import PostCard from '../components/PostCard';
 import { ToastContainer } from '../components/Toast';
 import OnlineIndicator from '../components/OnlineIndicator';
 import MessagesModal from '../components/MessagesModal';
+import AppHeader from '../components/AppHeader';
+import { useSiteSettings } from '../context/SiteSettingsContext';
 import shareIcon from '../assets/share.png';
 import '../styles/Home.css';
 import chatService from '../services/chatService';
@@ -23,14 +25,20 @@ const PEOPLE_PANEL_HEIGHT = 360;
 
 const Home = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { settings } = useSiteSettings();
+  const appName = settings?.appName || 'NEXUS';
   const [composerText, setComposerText] = useState('');
   const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState(null);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [newUsers, setNewUsers] = useState([]);
   const [newUsersError, setNewUsersError] = useState(null);
   const [showPeopleModal, setShowPeopleModal] = useState(false);
   const [showMessagesModal, setShowMessagesModal] = useState(false);
+  const [peopleModalMode, setPeopleModalMode] = useState('all');
+  const [chatOpenUserId, setChatOpenUserId] = useState(null);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [peopleUsers, setPeopleUsers] = useState([]);
   const [peopleUsersError, setPeopleUsersError] = useState(null);
@@ -71,6 +79,9 @@ const Home = () => {
   const [commentsByPost, setCommentsByPost] = useState({});
   const [commentsLoading, setCommentsLoading] = useState({});
   const [sharePostId, setSharePostId] = useState(null);
+  const [trendingTags, setTrendingTags] = useState([]);
+  const [trendingTagsLoading, setTrendingTagsLoading] = useState(true);
+  const [trendingTagsError, setTrendingTagsError] = useState(null);
   const dialogActionRef = useRef(null);
   const dialogInputRef = useRef('');
   const [dialogState, setDialogState] = useState({
@@ -93,8 +104,14 @@ const Home = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const searchTimeoutRef = useRef(null);
+  const [searchError, setSearchError] = useState(null);
+  const [activePostSearch, setActivePostSearch] = useState('');
+  const [activeHashtags, setActiveHashtags] = useState([]);
+  const [hashtagPosts, setHashtagPosts] = useState([]);
+  const [hashtagLoading, setHashtagLoading] = useState(false);
+  const [hashtagError, setHashtagError] = useState(null);
+  const engagementLoadedRef = useRef(new Set());
+  const engagementInFlightRef = useRef(new Set());
   const [toasts, setToasts] = useState([]);
   const toastIdRef = useRef(0);
 
@@ -120,6 +137,12 @@ const Home = () => {
     });
   }, [sessionOwnPosts, allPosts, posts]);
 
+  const displayedPosts = useMemo(() => {
+    if (activeHashtags.length > 0) return hashtagPosts;
+    if (activePostSearch) return searchResults;
+    return postsToRender;
+  }, [activeHashtags, hashtagPosts, activePostSearch, searchResults, postsToRender]);
+
   const displayName = useMemo(() => {
     if (!profile) return 'Your account';
     const name = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
@@ -141,6 +164,17 @@ const Home = () => {
     return displayName ? displayName[0].toUpperCase() : 'U';
   }, [displayName]);
 
+  // Handle opening direct chat from Profile page
+  useEffect(() => {
+    if (location.state?.openDirectChat) {
+      const userId = location.state.openDirectChat;
+      setChatOpenUserId(parseInt(userId));
+      setShowMessagesModal(true);
+      // Clear the state so it doesn't trigger again on navigation
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.state?.openDirectChat, navigate]);
+
   useEffect(() => {
     let isMounted = true;
     authService
@@ -159,10 +193,46 @@ const Home = () => {
       })
       .catch((error) => {
         if (isMounted) setProfileError(error.message || 'Unable to load profile');
+      })
+      .finally(() => {
+        if (isMounted) setProfileLoading(false);
       });
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = authService.getToken();
+
+    const fetchTrendingTags = async () => {
+      try {
+        setTrendingTagsLoading(true);
+        const res = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/trending-tags?windowDays=14&limit=6`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Unable to fetch trending tags');
+        if (cancelled) return;
+
+        setTrendingTags(Array.isArray(data.tags) ? data.tags : []);
+        setTrendingTagsError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setTrendingTags([]);
+          setTrendingTagsError(error.message || 'Unable to fetch trending tags');
+        }
+      } finally {
+        if (!cancelled) setTrendingTagsLoading(false);
+      }
+    };
+
+    fetchTrendingTags();
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -222,27 +292,32 @@ const Home = () => {
     }
   }, []);
 
-  const fetchPeopleUsers = useCallback(async () => {
+  const fetchPeopleUsers = useCallback(async (mode = 'all') => {
     setPeopleUsersLoading(true);
     setPeopleUsersError(null);
 
     try {
       const token = authService.getToken();
-      // Fetch ALL users, not just new ones
-      const res = await fetch(`${API_CONFIG.ENDPOINTS.USERS}/search?q=`, {
+      const endpoint = mode === 'friends'
+        ? `${API_CONFIG.ENDPOINTS.USERS}/friends/list`
+        : `${API_CONFIG.ENDPOINTS.USERS}/search?q=`;
+
+      const res = await fetch(endpoint, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
       
       if (!res.ok) {
-        throw new Error('Failed to load users');
+        throw new Error(mode === 'friends' ? 'Failed to load friends' : 'Failed to load users');
       }
       
       const data = await res.json();
-      const users = Array.isArray(data.users) ? data.users : [];
+      const users = mode === 'friends'
+        ? (Array.isArray(data.friends) ? data.friends : [])
+        : (Array.isArray(data.users) ? data.users : []);
       const filtered = users.filter((user) => user.id !== profile?.id && user.role !== 'ADMIN');
       setPeopleUsers(filtered);
     } catch (error) {
-      setPeopleUsersError(error.message || 'Unable to load people');
+      setPeopleUsersError(error.message || (mode === 'friends' ? 'Unable to load friends' : 'Unable to load people'));
     } finally {
       setPeopleUsersLoading(false);
     }
@@ -270,11 +345,9 @@ const Home = () => {
   useEffect(() => {
     if (showPeopleModal) {
       fetchFollowingList();
-      if (peopleUsers.length === 0 && !peopleUsersLoading) {
-        fetchPeopleUsers();
-      }
+      fetchPeopleUsers(peopleModalMode);
     }
-  }, [showPeopleModal, peopleUsers.length, peopleUsersLoading, fetchPeopleUsers, fetchFollowingList]);
+  }, [showPeopleModal, peopleModalMode, fetchPeopleUsers, fetchFollowingList]);
 
   useEffect(() => {
     const isMountedRef = { current: true };
@@ -369,30 +442,37 @@ const Home = () => {
     }
   };
 
-  const handleSearchFriends = useCallback(async (query) => {
-    if (!query.trim()) {
+  const handleSearchPosts = useCallback(async (query) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       setSearchResults([]);
-      setShowSearchResults(false);
+      setSearchError(null);
+      setActivePostSearch('');
+      setSearchLoading(false);
       return;
     }
 
     setSearchLoading(true);
-    setShowSearchResults(true);
+    setSearchError(null);
+    setActivePostSearch(trimmedQuery);
 
     try {
       const token = authService.getToken();
-      const res = await apiFetch(`${API_CONFIG.ENDPOINTS.USERS}/search?q=${encodeURIComponent(query)}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/search?q=${encodeURIComponent(trimmedQuery)}&limit=25`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
       const data = await res.json();
       if (res.ok) {
-        setSearchResults(data.users || []);
+        setSearchResults(Array.isArray(data.posts) ? data.posts : []);
+        setSearchError(null);
       } else {
         setSearchResults([]);
+        setSearchError(data.message || 'Unable to search posts');
       }
     } catch (err) {
       console.error('Search error:', err);
       setSearchResults([]);
+      setSearchError('Unable to search posts');
     } finally {
       setSearchLoading(false);
     }
@@ -402,15 +482,110 @@ const Home = () => {
     const query = e.target.value;
     setSearchQuery(query);
 
-    // Debounce search
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
+    if (!query.trim()) {
+      setActivePostSearch('');
+      setSearchResults([]);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
     }
 
-    searchTimeoutRef.current = setTimeout(() => {
-      handleSearchFriends(query);
-    }, 300);
+    // Keep feed unfiltered while typing; apply search only on Enter.
+    setActiveHashtags([]);
+    setActivePostSearch('');
+    setSearchLoading(false);
   };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    handleSearchPosts(searchQuery);
+  };
+
+  const handleClearSearchInput = () => {
+    setSearchQuery('');
+    setActivePostSearch('');
+    setSearchResults([]);
+    setSearchError(null);
+    setSearchLoading(false);
+  };
+
+  const handleHashtagClick = useCallback((tag) => {
+    if (!tag) return;
+    const normalizedTag = (tag.startsWith('#') ? tag : `#${tag}`).toLowerCase();
+    setActiveHashtags((prev) => {
+      const already = prev.some((t) => t.toLowerCase() === normalizedTag);
+      return already ? prev.filter((t) => t.toLowerCase() !== normalizedTag) : [...prev, normalizedTag];
+    });
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchError(null);
+    setActivePostSearch('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchHashtagPosts = async () => {
+      if (activeHashtags.length === 0) {
+        setHashtagPosts([]);
+        setHashtagError(null);
+        setHashtagLoading(false);
+        return;
+      }
+
+      try {
+        setHashtagLoading(true);
+        setHashtagError(null);
+        const token = authService.getToken();
+        const fetches = activeHashtags.map((ht) => {
+          const tag = ht.replace(/^#/, '');
+          return apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/hashtag/${encodeURIComponent(tag)}?windowDays=30&limit=50`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          }).then((res) => res.json()).then((data) => Array.isArray(data.posts) ? data.posts : []);
+        });
+        const results = await Promise.all(fetches);
+        if (cancelled) return;
+        // Merge and deduplicate by post id
+        const seen = new Set();
+        const merged = [];
+        for (const batch of results) {
+          for (const post of batch) {
+            const key = post.pageId ? `page-${post.id}` : `user-${post.id}`;
+            if (!seen.has(key)) { seen.add(key); merged.push(post); }
+          }
+        }
+        merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        setHashtagPosts(merged);
+      } catch (error) {
+        if (!cancelled) {
+          setHashtagPosts([]);
+          setHashtagError(error.message || 'Unable to fetch hashtag posts');
+        }
+      } finally {
+        if (!cancelled) setHashtagLoading(false);
+      }
+    };
+
+    fetchHashtagPosts();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeHashtags]);
+
+  const openPeopleModal = useCallback((mode = 'all') => {
+    setPeopleModalMode(mode);
+    setPeopleSearch('');
+    setPeopleScrollTop(0);
+    setShowPeopleModal(true);
+  }, []);
+
+  const handleFriendChat = useCallback((userId) => {
+    setShowPeopleModal(false);
+    setChatOpenUserId(userId);
+    setShowMessagesModal(true);
+  }, []);
 
   const handleFollowUser = async (userId) => {
     try {
@@ -468,11 +643,6 @@ const Home = () => {
     } catch (error) {
       console.error('Error toggling follow:', error);
     }
-  };
-
-  const handleLogout = () => {
-    authService.logout();
-    navigate('/login');
   };
 
   useEffect(() => {
@@ -557,7 +727,7 @@ const Home = () => {
   }, []);
 
   useEffect(() => {
-    const postsToUse = postsToRender;
+    const postsToUse = displayedPosts;
     setLikeCounts((prev) => {
       const next = { ...prev };
       postsToUse.forEach((post) => {
@@ -572,7 +742,7 @@ const Home = () => {
       });
       return next;
     });
-  }, [postsToRender]);
+  }, [displayedPosts]);
 
   // Function to load likes and comment count
   const loadLikeAndCommentInfo = useCallback(async (postId) => {
@@ -599,15 +769,41 @@ const Home = () => {
     }
   }, []);
 
+  const ensureEngagementLoaded = useCallback(async (postId) => {
+    if (!postId) return;
+    if (engagementLoadedRef.current.has(postId) || engagementInFlightRef.current.has(postId)) return;
+
+    engagementInFlightRef.current.add(postId);
+    try {
+      await loadLikeAndCommentInfo(postId);
+      engagementLoadedRef.current.add(postId);
+    } finally {
+      engagementInFlightRef.current.delete(postId);
+    }
+  }, [loadLikeAndCommentInfo]);
+
   // Load likes and comments from backend when a post's details are requested
   useEffect(() => {
-    const postsToUse = postsToRender;
-    if (postsToUse.length > 0 && Object.keys(likedPosts).length === 0) {
-      postsToUse.forEach((post) => {
-        loadLikeAndCommentInfo(post.id);
-      });
-    }
-  }, [postsToRender, loadLikeAndCommentInfo]);
+    const postsToUse = displayedPosts;
+    if (postsToUse.length === 0) return;
+
+    const unseenIds = postsToUse
+      .map((post) => post.id)
+      .filter((postId) => !engagementLoadedRef.current.has(postId) && !engagementInFlightRef.current.has(postId));
+
+    if (unseenIds.length === 0) return;
+
+    const timers = unseenIds.map((postId, index) => {
+      const delay = index < 8 ? 0 : Math.min((index - 7) * 120, 2000);
+      return setTimeout(() => {
+        ensureEngagementLoaded(postId);
+      }, delay);
+    });
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [displayedPosts, ensureEngagementLoaded]);
 
 
 
@@ -645,9 +841,26 @@ const Home = () => {
   const handleToggleLike = async (postId) => {
     setLikeLoading((prev) => ({ ...prev, [postId]: true }));
     try {
-      const isCurrentlyLiked = likedPosts[postId];
-      const method = isCurrentlyLiked ? 'DELETE' : 'POST';
+      let isCurrentlyLiked = likedPosts[postId];
       const token = authService.getToken();
+
+      if (typeof isCurrentlyLiked === 'undefined') {
+        const likesRes = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}/likes`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+
+        if (likesRes.ok) {
+          const likesData = await likesRes.json();
+          isCurrentlyLiked = Boolean(likesData.likedByUser);
+          setLikedPosts((prev) => ({ ...prev, [postId]: isCurrentlyLiked }));
+          setLikeCounts((prev) => ({ ...prev, [postId]: likesData.likeCount || 0 }));
+          engagementLoadedRef.current.add(postId);
+        } else {
+          isCurrentlyLiked = false;
+        }
+      }
+
+      const method = isCurrentlyLiked ? 'DELETE' : 'POST';
       
       const res = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}/like`, {
         method,
@@ -658,6 +871,8 @@ const Home = () => {
         const data = await res.json();
         setLikedPosts((prev) => ({ ...prev, [postId]: !isCurrentlyLiked }));
         setLikeCounts((prev) => ({ ...prev, [postId]: data.likeCount }));
+      } else {
+        await ensureEngagementLoaded(postId);
       }
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -668,6 +883,7 @@ const Home = () => {
 
   const handleToggleComments = (postId) => {
     setOpenCommentsPostId((prev) => (prev === postId ? null : postId));
+    ensureEngagementLoaded(postId);
   };
 
   const handleCommentChange = (postId, value) => {
@@ -707,8 +923,8 @@ const Home = () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'NEXUS Post',
-          text: post.content?.slice(0, 120) || 'Check this post on NEXUS',
+          title: `${appName} Post`,
+          text: post.content?.slice(0, 120) || `Check this post on ${appName}`,
           url,
         });
         return;
@@ -743,6 +959,7 @@ const Home = () => {
       .replace(/^- (.*?)$/gm, '<li>$1</li>')            // - list
       .replace(/(<li>.*?<\/li>)/s, '<ul>$1</ul>')       // wrap in ul
       .replace(/\n/g, '<br/>');
+    html = html.replace(/(^|[\s>])#([a-zA-Z0-9_]+)/g, '$1<a href="#" data-hashtag="#$2">#$2</a>');
     return html;
   };
 
@@ -1000,133 +1217,80 @@ const Home = () => {
 
   return (
     <div className="home-page">
-      <header className="home-topbar">
-        <div className="home-topbar-inner">
-          <div className="brand">NEXUS</div>
-          <div className="topbar-actions">
-            <div style={{ position: 'relative' }}>
-              <input 
-                className="search-input" 
-                placeholder="Search friends..." 
-                value={searchQuery}
-                onChange={handleSearchChange}
-                onFocus={() => searchQuery && setShowSearchResults(true)}
-              />
-              {showSearchResults && (
-                <>
-                  <div 
-                    style={{
-                      position: 'fixed',
-                      inset: 0,
-                      zIndex: 30
-                    }}
-                    onClick={() => setShowSearchResults(false)}
-                  />
-                  <div style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 8px)',
-                    left: 0,
-                    right: 0,
-                    background: 'white',
-                    borderRadius: '12px',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                    maxHeight: '400px',
-                    overflowY: 'auto',
-                    zIndex: 40
-                  }}>
-                    {searchLoading ? (
-                      <div style={{ padding: '16px', textAlign: 'center', color: '#64748b' }}>
-                        Searching...
-                      </div>
-                    ) : searchResults.length > 0 ? (
-                      searchResults.map((user) => (
-                        <div
-                          key={user.id}
-                          style={{
-                            padding: '12px 16px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '12px',
-                            cursor: 'pointer',
-                            borderBottom: '1px solid #f1f5f9',
-                            transition: 'background 0.2s'
-                          }}
-                          onClick={() => {
-                            navigate(`/profile/${user.id}`);
-                            setShowSearchResults(false);
-                            setSearchQuery('');
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
-                        >
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '50%',
-                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'white',
-                            fontWeight: '700',
-                            fontSize: '16px'
-                          }}>
-                            {user.profileImageUrl ? (
-                              <img src={user.profileImageUrl} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
-                            ) : (
-                              getUserDisplayName(user)[0]
-                            )}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: '600', color: '#0f172a' }}>
-                              {getUserDisplayName(user)}
-                            </div>
-                            <div style={{ fontSize: '13px', color: '#64748b' }}>
-                              @{getUserHandle(user)}
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ padding: '16px', textAlign: 'center', color: '#64748b' }}>
-                        No friends found
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            <button className="logout-btn" onClick={handleLogout}>Logout</button>
-          </div>
+      <AppHeader showPageNav={false}>
+        <div style={{ position: 'relative', width: '100%' }}>
+          <input
+            placeholder="Search posts..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            onKeyDown={handleSearchKeyDown}
+            style={{ width: '100%', padding: '10px 40px 10px 14px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '14px', background: '#fff', boxSizing: 'border-box' }}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={handleClearSearchInput}
+              aria-label="Clear search"
+              title="Clear"
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                border: 'none',
+                background: 'transparent',
+                color: '#64748b',
+                fontSize: '18px',
+                lineHeight: 1,
+                cursor: 'pointer',
+                padding: '2px 4px'
+              }}
+            >
+              ×
+            </button>
+          )}
         </div>
-      </header>
+      </AppHeader>
 
       <main className="home-shell">
         {/* Left Sidebar */}
         <aside className="side-panel">
           <div className="panel-card">
             <div className="profile-card">
-              <div className="profile-avatar">
-                {profile?.profileImageUrl ? (
-                  <img src={profile.profileImageUrl} alt={displayName} />
-                ) : (
-                  avatarLetter
-                )}
-              </div>
-              <div>
-                <div 
-                  className="profile-name" 
-                  onClick={() => profile?.id && navigate(`/profile/${profile.id}`)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  {displayName}
-                </div>
-                <div className="profile-handle">{userHandle}</div>
-                <button className="profile-link" onClick={() => setIsAccountOpen(true)}>My Account</button>
-                {profileError && (
-                  <div className="profile-error">{profileError}</div>
-                )}
-              </div>
+              {profileLoading ? (
+                <>
+                  <div className="profile-avatar skeleton-block" />
+                  <div className="profile-details" style={{ width: '100%' }}>
+                    <div className="skeleton-line" style={{ width: '140px', height: '16px' }} />
+                    <div className="skeleton-line" style={{ width: '96px', height: '12px' }} />
+                    <div className="skeleton-line" style={{ width: '92px', height: '30px', borderRadius: '999px', marginTop: '8px' }} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="profile-avatar">
+                    {profile?.profileImageUrl ? (
+                      <img src={profile.profileImageUrl} alt={displayName} loading="eager" decoding="async" />
+                    ) : (
+                      avatarLetter
+                    )}
+                  </div>
+                  <div className="profile-details">
+                    <div
+                      className="profile-name"
+                      onClick={() => profile?.id && navigate(`/profile/${profile.id}`)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {displayName}
+                    </div>
+                    <div className="profile-handle">{userHandle}</div>
+                    <button className="profile-link" onClick={() => setIsAccountOpen(true)}>My Account</button>
+                    {profileError && (
+                      <div className="profile-error">{profileError}</div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -1136,7 +1300,10 @@ const Home = () => {
               <div className="nav-item" onClick={() => navigate('/home')} style={{ cursor: 'pointer' }}>🏠 Home Feed</div>
               <div className="nav-item" onClick={() => navigate('/my-posts')} style={{ cursor: 'pointer' }}>📝 My Posts</div>
               <div className="nav-item" onClick={() => navigate('/pages/my-pages')} style={{ cursor: 'pointer' }}>📄 Pages</div>
-              <div className="nav-item" onClick={() => setShowMessagesModal(true)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div className="nav-item" onClick={() => {
+                setChatOpenUserId(null);
+                setShowMessagesModal(true);
+              }} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                 <span>💬 Messages</span>
                 {unreadMessagesCount > 0 && (
                   <span style={{
@@ -1156,22 +1323,13 @@ const Home = () => {
                   </span>
                 )}
               </div>
-              <div className="nav-item" onClick={() => navigate('/friends')} style={{ cursor: 'pointer' }}>👥 Friends</div>
+              <div className="nav-item" onClick={() => openPeopleModal('friends')} style={{ cursor: 'pointer' }}>👥 Friends</div>
             </div>
           </div>
         </aside>
 
         {/* Feed */}
         <section className="feed">
-          <div className="story-row">
-            {[profile?.firstName || 'You', 'Priya', 'Arjun', 'Zara', 'Vikram'].map((name) => (
-              <div key={name} className="story-card">
-                <div className="story-avatar">{name[0]}</div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{name}</div>
-              </div>
-            ))}
-          </div>
-
           <div className="compose-card">
             <LexicalEditor
               key={composeEditorKey}
@@ -1222,19 +1380,96 @@ const Home = () => {
           </div>
 
           {postsLoading && (
-            <div className="feed-status">Loading feed...</div>
+            <div className="feed-skeleton-list" aria-label="Loading feed">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="post-card feed-skeleton-card">
+                  <div className="feed-skeleton-header">
+                    <div className="feed-skeleton-avatar" />
+                    <div className="feed-skeleton-meta">
+                      <div className="skeleton-line" style={{ width: '120px', height: '14px' }} />
+                      <div className="skeleton-line" style={{ width: '90px', height: '11px' }} />
+                    </div>
+                  </div>
+                  <div className="skeleton-line" style={{ width: '100%', height: '12px' }} />
+                  <div className="skeleton-line" style={{ width: '86%', height: '12px' }} />
+                  <div className="feed-skeleton-media" />
+                </div>
+              ))}
+            </div>
           )}
           {postsError && (
             <div className="feed-status error">{postsError}</div>
           )}
-          {!postsLoading && postsToRender.length === 0 && !postsError && (
+          {!postsLoading && displayedPosts.length === 0 && !postsError && activeHashtags.length === 0 && !activePostSearch && (
             <div className="feed-status">No posts yet. Start the conversation!</div>
+          )}
+          {!postsLoading && !hashtagLoading && !hashtagError && displayedPosts.length === 0 && activeHashtags.length > 0 && (
+            <div className="feed-status">No posts found for {activeHashtags.join(', ')}</div>
+          )}
+          {!postsLoading && hashtagLoading && activeHashtags.length > 0 && (
+            <div className="feed-status">Loading posts for {activeHashtags.join(', ')}...</div>
+          )}
+          {!postsLoading && hashtagError && activeHashtags.length > 0 && (
+            <div className="feed-status error">{hashtagError}</div>
+          )}
+          {!postsLoading && !searchLoading && !searchError && displayedPosts.length === 0 && activePostSearch && activeHashtags.length === 0 && (
+            <div className="feed-status">No posts found for "{activePostSearch}"</div>
+          )}
+          {!postsLoading && searchLoading && activePostSearch && activeHashtags.length === 0 && (
+            <div className="feed-status">Searching posts for "{activePostSearch}"...</div>
+          )}
+          {!postsLoading && searchError && activePostSearch && activeHashtags.length === 0 && (
+            <div className="feed-status error">{searchError}</div>
+          )}
+
+          {activeHashtags.length > 0 && (
+            <div style={{ marginBottom: '12px', padding: '10px 12px', border: '1px solid #c7d2fe', borderRadius: '10px', background: '#f5f3ff', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#334155', marginRight: '4px' }}>Filtering by:</span>
+              {activeHashtags.map((ht) => (
+                <span
+                  key={ht}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#e0e7ff', color: '#3730a3', borderRadius: '999px', padding: '3px 10px', fontSize: '13px', fontWeight: 600 }}
+                >
+                  {ht}
+                  <button
+                    onClick={() => setActiveHashtags((prev) => prev.filter((t) => t !== ht))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontWeight: 700, fontSize: '14px', lineHeight: 1, padding: '0 0 0 2px' }}
+                    title={`Remove ${ht}`}
+                  >×</button>
+                </span>
+              ))}
+              <button
+                onClick={() => setActiveHashtags([])}
+                aria-label="Clear all hashtags"
+                title="Clear all hashtags"
+                style={{ marginLeft: 'auto', width: '24px', height: '24px', border: '1px solid #c7d2fe', background: '#fff', borderRadius: '999px', padding: 0, fontSize: '16px', lineHeight: 1, cursor: 'pointer', color: '#6366f1', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {activePostSearch && activeHashtags.length === 0 && (
+            <div style={{ marginBottom: '12px', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '10px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+              <div style={{ fontSize: '13px', color: '#334155' }}>Showing posts for <strong>"{activePostSearch}"</strong></div>
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setSearchError(null);
+                  setActivePostSearch('');
+                }}
+                style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Clear
+              </button>
+            </div>
           )}
 
           {(() => {
             const renderedElements = [];
 
-            postsToRender.forEach((post, index) => {
+            displayedPosts.forEach((post, index) => {
               // Count all comments including nested replies
               const countAllComments = (comments) => {
                 if (!comments || comments.length === 0) return 0;
@@ -1279,13 +1514,14 @@ const Home = () => {
                   onCommentAdded={() => loadLikeAndCommentInfo(post.id)}
                   openCommentsPostId={openCommentsPostId}
                   showToast={showToast}
+                  onHashtagClick={handleHashtagClick}
                 />
               );
 
               renderedElements.push(postElement);
 
               // Add PageCarousel after 3rd post
-              if (index === 2) {
+              if (activeHashtags.length === 0 && index === 2) {
                 renderedElements.push(<PageCarousel key="page-carousel" />);
               }
             });
@@ -1297,7 +1533,7 @@ const Home = () => {
         {/* Right Panel */}
         <aside className="side-panel right-panel">
           <div className="panel-card right-card">
-            <div className="panel-title">People on Nexus</div>
+            <div className="panel-title">People on {appName}</div>
             {newUsers
               .filter((user) => user.id !== profile?.id && user.role !== 'ADMIN')
               .slice(0, 5)
@@ -1337,11 +1573,7 @@ const Home = () => {
               .filter((user) => user.id !== profile?.id && user.role !== 'ADMIN')
               .slice(0, 5).length > 0 && (
               <button
-                onClick={() => {
-                  setPeopleSearch('');
-                  setPeopleScrollTop(0);
-                  setShowPeopleModal(true);
-                }}
+                onClick={() => openPeopleModal('all')}
                 style={{
                   marginTop: '10px',
                   width: '100%',
@@ -1369,10 +1601,29 @@ const Home = () => {
           <div className="panel-card">
             <div className="panel-title">Trending</div>
             <div className="nav-list">
-              <div className="nav-item">#NEXUSLaunch</div>
-              <div className="nav-item">#DesignInspo</div>
-              <div className="nav-item">#DevCommunity</div>
-              <div className="nav-item">#ProductHunt</div>
+              {trendingTagsLoading && <div className="nav-item">Loading trends...</div>}
+              {!trendingTagsLoading && trendingTags.map((trend) => (
+                <div
+                  key={trend.tag}
+                  className="nav-item"
+                  title={`${trend.postCount} posts this week`}
+                  onClick={() => handleHashtagClick(trend.tag)}
+                  style={{
+                    cursor: 'pointer',
+                    background: activeHashtags.some((t) => t.toLowerCase() === trend.tag.toLowerCase()) ? '#e0e7ff' : undefined,
+                    color: activeHashtags.some((t) => t.toLowerCase() === trend.tag.toLowerCase()) ? '#3730a3' : undefined,
+                    fontWeight: activeHashtags.some((t) => t.toLowerCase() === trend.tag.toLowerCase()) ? 700 : undefined,
+                  }}
+                >
+                  {trend.tag}
+                </div>
+              ))}
+              {!trendingTagsLoading && !trendingTagsError && trendingTags.length === 0 && (
+                <div className="nav-item">No trends yet</div>
+              )}
+              {!trendingTagsLoading && trendingTagsError && (
+                <div className="nav-item">Unable to load trends</div>
+              )}
             </div>
           </div>
         </aside>
@@ -1415,7 +1666,7 @@ const Home = () => {
               </a>
               <a
                 className="share-action"
-                href={`mailto:?subject=NEXUS%20Post&body=${encodeURIComponent(getPostLink(sharePostId))}`}
+                href={`mailto:?subject=${encodeURIComponent(`${appName} Post`)}&body=${encodeURIComponent(getPostLink(sharePostId))}`}
               >
                 ✉️ Email
               </a>
@@ -1459,8 +1710,12 @@ const Home = () => {
               borderBottom: '1px solid #e2e8f0'
             }}>
               <div>
-                <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>People on Nexus</div>
-                <div style={{ fontSize: '13px', color: '#64748b' }}>Browse and follow members</div>
+                <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>
+                  {peopleModalMode === 'friends' ? 'My Friends' : `People on ${appName}`}
+                </div>
+                <div style={{ fontSize: '13px', color: '#64748b' }}>
+                  {peopleModalMode === 'friends' ? 'Chat or view your friends' : 'Browse and follow members'}
+                </div>
               </div>
               <button
                 onClick={() => setShowPeopleModal(false)}
@@ -1479,7 +1734,7 @@ const Home = () => {
             <div style={{ padding: '16px 20px' }}>
               <input
                 type="text"
-                placeholder="Search people by name, username, or email..."
+                placeholder={peopleModalMode === 'friends' ? 'Search friends by name, username, or email...' : 'Search people by name, username, or email...'}
                 value={peopleSearch}
                 onChange={(e) => setPeopleSearch(e.target.value)}
                 style={{
@@ -1494,13 +1749,17 @@ const Home = () => {
 
             <div style={{ padding: '0 20px 20px 20px' }}>
               {peopleUsersLoading && (
-                <div style={{ fontSize: '13px', color: '#64748b', padding: '12px 0' }}>Loading people...</div>
+                <div style={{ fontSize: '13px', color: '#64748b', padding: '12px 0' }}>
+                  {peopleModalMode === 'friends' ? 'Loading friends...' : 'Loading people...'}
+                </div>
               )}
               {peopleUsersError && (
                 <div style={{ fontSize: '13px', color: '#ef4444', padding: '12px 0' }}>{peopleUsersError}</div>
               )}
               {!peopleUsersLoading && !peopleUsersError && peopleVirtual.total === 0 && (
-                <div style={{ fontSize: '13px', color: '#64748b', padding: '12px 0' }}>No people found.</div>
+                <div style={{ fontSize: '13px', color: '#64748b', padding: '12px 0' }}>
+                  {peopleModalMode === 'friends' ? 'No friends found.' : 'No people found.'}
+                </div>
               )}
 
               {!peopleUsersLoading && !peopleUsersError && peopleVirtual.total > 0 && (
@@ -1573,21 +1832,48 @@ const Home = () => {
                                 <div style={{ color: '#64748b', fontSize: '12px' }}>{handle}</div>
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleToggleFollowUser(user.id, isFollowing)}
-                              style={{
-                                padding: '6px 12px',
-                                borderRadius: '6px',
-                                border: isFollowing ? '1px solid #fca5a5' : '1px solid #cbd5e1',
-                                background: isFollowing ? '#fee2e2' : '#ffffff',
-                                color: isFollowing ? '#b91c1c' : '#0f172a',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600'
-                              }}
-                            >
-                              {isFollowing ? 'Unfollow' : 'Follow'}
-                            </button>
+                            {peopleModalMode === 'friends' ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <button
+                                  onClick={() => handleFriendChat(user.id)}
+                                  title="Chat"
+                                  aria-label="Open chat"
+                                  style={{
+                                    padding: '6px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #c7d2fe',
+                                    background: '#eef2ff',
+                                    color: '#4338ca',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '34px',
+                                    height: '34px'
+                                  }}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                  </svg>
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleFollowUser(user.id, isFollowing)}
+                                style={{
+                                  padding: '6px 12px',
+                                  borderRadius: '6px',
+                                  border: isFollowing ? '1px solid #fca5a5' : '1px solid #cbd5e1',
+                                  background: isFollowing ? '#fee2e2' : '#ffffff',
+                                  color: isFollowing ? '#b91c1c' : '#0f172a',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                {isFollowing ? 'Unfollow' : 'Follow'}
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -1602,11 +1888,16 @@ const Home = () => {
 
       <MessagesModal
         isOpen={showMessagesModal}
-        onClose={() => setShowMessagesModal(false)}
+        onClose={() => {
+          setShowMessagesModal(false);
+          setChatOpenUserId(null);
+        }}
         currentUserId={currentUserId}
+        openDirectUserId={chatOpenUserId}
         onUnreadChange={setUnreadMessagesCount}
         onOpenProfile={(userId) => {
           setShowMessagesModal(false);
+          setChatOpenUserId(null);
           navigate(`/profile/${userId}`);
         }}
       />

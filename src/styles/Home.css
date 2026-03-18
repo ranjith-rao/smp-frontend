@@ -25,14 +25,27 @@
 .brand {
   font-size: 32px;
   font-weight: 900;
-  background: linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
   letter-spacing: -1px;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   transition: transform 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand span {
+  background: linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.brand-logo-image {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.25));
 }
 
 .brand:hover {
@@ -125,17 +138,26 @@
   text-align: center;
 }
 
+.profile-details {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .profile-name {
   font-weight: 700;
   margin: 0;
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .profile-handle {
   color: #64748b;
   font-size: 13px;
-  margin-top: 0;
-  line-height: 1.2;
+  margin: 0;
+  line-height: 1;
 }
 
 .profile-link {
@@ -156,8 +178,8 @@
 }
 
 .profile-avatar {
-  width: 100px;
-  height: 100px;
+  width: 124px;
+  height: 124px;
   border-radius: 50%;
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
   display: grid;
@@ -737,6 +759,67 @@
 
 .feed-status.error {
   color: #ef4444;
+}
+
+.skeleton-block,
+.skeleton-line,
+.feed-skeleton-avatar,
+.feed-skeleton-media {
+  position: relative;
+  overflow: hidden;
+  background: #e2e8f0;
+}
+
+.skeleton-block::after,
+.skeleton-line::after,
+.feed-skeleton-avatar::after,
+.feed-skeleton-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  animation: skeleton-shimmer 1.1s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.feed-skeleton-list {
+  display: grid;
+  gap: 14px;
+}
+
+.feed-skeleton-card {
+  gap: 12px;
+}
+
+.feed-skeleton-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.feed-skeleton-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.feed-skeleton-meta {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.feed-skeleton-media {
+  width: 100%;
+  height: 220px;
+  border-radius: 12px;
 }
 
 .post-actions {

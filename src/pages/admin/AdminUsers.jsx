@@ -3,6 +3,7 @@ import { adminService } from '../../services/adminService';
 import { getUserHandle } from '../../utils/userHelpers';
 import AdminTable from '../../components/AdminTable';
 import Dialog from '../../components/Dialog';
+import '../../styles/AdminPages.css';
 
 const AdminUsers = () => {
   const [users, setUsers] = useState([]);
@@ -100,10 +101,10 @@ const AdminUsers = () => {
       label: 'User',
       key: 'user',
       render: (user) => (
-        <div>
-          <div style={{ fontWeight: '600' }}>{user.firstName} {user.lastName}</div>
-          <div style={{ fontSize: '12px', color: '#94a3b8' }}>@{getUserHandle(user)}</div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>{user.email}</div>
+        <div className="admin-user-cell">
+          <div className="admin-user-name">{user.firstName} {user.lastName}</div>
+          <div className="admin-user-handle">@{getUserHandle(user)}</div>
+          <div className="admin-user-email">{user.email}</div>
         </div>
       ),
       sortValue: (user) => `${user.firstName} ${user.lastName}`,
@@ -128,29 +129,16 @@ const AdminUsers = () => {
       label: 'Actions',
       key: 'actions',
       render: (user) => (
-        <div className="admin-table-actions" style={{ display: 'flex', gap: '8px' }}>
+        <div className="admin-table-actions">
           <button
             onClick={() => handleToggleBlock(user.id)}
-            style={{
-              padding: '5px 10px',
-              cursor: 'pointer',
-              borderRadius: '4px',
-              border: '1px solid #cbd5e1',
-              backgroundColor: 'white'
-            }}
+            className="admin-action-btn"
           >
             {user.isBlocked ? 'Unblock' : 'Block'}
           </button>
           <button
             onClick={() => handleDelete(user.id)}
-            style={{
-              padding: '5px 10px',
-              cursor: 'pointer',
-              borderRadius: '4px',
-              border: '1px solid #ef4444',
-              backgroundColor: '#fee2e2',
-              color: '#991b1b'
-            }}
+            className="admin-action-btn danger"
           >
             Delete
           </button>
@@ -160,20 +148,15 @@ const AdminUsers = () => {
   ], [handleToggleBlock, handleDelete]);
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ color: '#1e293b', margin: 0 }}>User Management</h1>
+    <div className="admin-page">
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-title">User Management</h1>
+          <p className="admin-page-subtitle">Create users, manage status, and search the community quickly.</p>
+        </div>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#6366f1',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: '500'
-          }}
+          className="admin-primary-btn"
         >
           {showCreateForm ? 'Cancel' : '+ Add User'}
         </button>
@@ -181,72 +164,60 @@ const AdminUsers = () => {
 
       {/* Create User Form */}
       {showCreateForm && (
-        <div style={{
-          backgroundColor: '#f8fafc',
-          padding: '20px',
-          borderRadius: '8px',
-          marginBottom: '20px',
-          border: '1px solid #e2e8f0'
-        }}>
-          <h3 style={{ marginTop: 0, color: '#1e293b' }}>Create New User</h3>
+        <div className="admin-card admin-form-card">
+          <h3>Create New User</h3>
           <form onSubmit={handleCreateUser}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>First Name *</label>
+            <div className="admin-form-grid two-col">
+              <div className="admin-field">
+                <label>First Name *</label>
                 <input
                   type="text"
                   required
                   value={formData.firstName}
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Last Name *</label>
+              <div className="admin-field">
+                <label>Last Name *</label>
                 <input
                   type="text"
                   required
                   value={formData.lastName}
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Email *</label>
+              <div className="admin-field">
+                <label>Email *</label>
                 <input
                   type="email"
                   required
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Phone *</label>
+              <div className="admin-field">
+                <label>Phone *</label>
                 <input
                   type="tel"
                   required
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Password *</label>
+              <div className="admin-field">
+                <label>Password *</label>
                 <input
                   type="password"
                   required
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Role</label>
+              <div className="admin-field">
+                <label>Role</label>
                 <select
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                 >
                   <option value="USER">User</option>
                   <option value="ADMIN">Admin</option>
@@ -255,16 +226,7 @@ const AdminUsers = () => {
             </div>
             <button
               type="submit"
-              style={{
-                marginTop: '15px',
-                padding: '10px 20px',
-                backgroundColor: '#10b981',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: '500'
-              }}
+              className="admin-primary-btn success"
             >
               Create User
             </button>
@@ -272,19 +234,20 @@ const AdminUsers = () => {
         </div>
       )}
       
-      {error && <p style={{ color: '#e74c3c', marginBottom: '15px' }}>{error}</p>}
-      {loading && <p style={{ color: '#6366f1' }}>Loading...</p>}
+      {error && <div className="admin-banner error">{error}</div>}
+      {loading && <div className="admin-banner info">Loading...</div>}
       
       {/* Search and Filter Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+      <div className="admin-toolbar">
         <input 
           type="text" 
           placeholder="Search by email or name..." 
-          style={{ padding: '10px', width: '300px', borderRadius: '5px', border: '1px solid #cbd5e1' }}
+          className="admin-search-input"
+          value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         
-        <select value={limit} onChange={(e) => setLimit(e.target.value)} style={{ padding: '10px' }}>
+        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="admin-select-input">
           <option value="10">10 per page</option>
           <option value="20">20 per page</option>
           <option value="50">50 per page</option>
@@ -300,16 +263,12 @@ const AdminUsers = () => {
       />
 
       {/* Pagination Controls */}
-      <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+      <div className="admin-pagination-external">
         {[...Array(totalPages)].map((_, i) => (
           <button 
             key={i} 
             onClick={() => setPage(i + 1)}
-            style={{ 
-              padding: '8px 12px', 
-              backgroundColor: page === i + 1 ? '#6366f1' : 'white',
-              color: page === i + 1 ? 'white' : 'black'
-            }}
+            className={page === i + 1 ? 'active' : ''}
           >
             {i + 1}
           </button>
