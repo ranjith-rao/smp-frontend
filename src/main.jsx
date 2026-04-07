@@ -4,12 +4,15 @@ import './index.css'
 import App from './App.jsx'
 import { PresenceProvider } from './context/PresenceContext.jsx'
 import { SiteSettingsProvider } from './context/SiteSettingsContext.jsx'
+import { NotificationProvider } from './context/NotificationContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <SiteSettingsProvider>
       <PresenceProvider>
-        <App />
+        <NotificationProvider>
+          <App />
+        </NotificationProvider>
       </PresenceProvider>
     </SiteSettingsProvider>
   </StrictMode>,

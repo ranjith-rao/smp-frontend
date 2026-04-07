@@ -386,6 +386,12 @@
   background: white;
 }
 
+.profile-post.post-deeplink-highlight {
+  outline: 2px solid #6366f1;
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.28);
+  transition: box-shadow 0.25s ease, outline-color 0.25s ease;
+}
+
 .post-actions {
   display: flex;
   align-items: center;

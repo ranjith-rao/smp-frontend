@@ -19,9 +19,20 @@ import { useSiteSettings } from '../context/SiteSettingsContext';
 import shareIcon from '../assets/share.png';
 import '../styles/Home.css';
 import chatService from '../services/chatService';
+import storyService from '../services/storyService';
 
 const PEOPLE_ROW_HEIGHT = 72;
 const PEOPLE_PANEL_HEIGHT = 360;
+const STORY_PHOTO_DURATION_MS = 5000;
+const STORY_TEXT_DURATION_MS = 4500;
+const STORY_VIDEO_FALLBACK_DURATION_MS = 10000;
+
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
 
 const Home = () => {
   const navigate = useNavigate();
@@ -46,6 +57,9 @@ const Home = () => {
   const [peopleSearch, setPeopleSearch] = useState('');
   const [peopleScrollTop, setPeopleScrollTop] = useState(0);
   const [followingIds, setFollowingIds] = useState(new Set());
+  const [pendingFollowRequestIds, setPendingFollowRequestIds] = useState(new Set());
+  const [incomingRequestCount, setIncomingRequestCount] = useState(0);
+  const [incomingRequestByUserId, setIncomingRequestByUserId] = useState({});
   const [profileForm, setProfileForm] = useState({
     firstName: '',
     lastName: '',
@@ -82,6 +96,28 @@ const Home = () => {
   const [trendingTags, setTrendingTags] = useState([]);
   const [trendingTagsLoading, setTrendingTagsLoading] = useState(true);
   const [trendingTagsError, setTrendingTagsError] = useState(null);
+  const [storyGroups, setStoryGroups] = useState([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
+  const [storySaving, setStorySaving] = useState(false);
+  const [storyDraft, setStoryDraft] = useState({
+    mediaType: 'TEXT',
+    mediaUrl: '',
+    textContent: '',
+    background: '#0f172a',
+  });
+  const [storyViewer, setStoryViewer] = useState({
+    open: false,
+    groupIndex: 0,
+    storyIndex: 0,
+  });
+  const [storyProgress, setStoryProgress] = useState(0);
+  const [storyVideoDurationMs, setStoryVideoDurationMs] = useState(null);
+  const [isStoryPaused, setIsStoryPaused] = useState(false);
+  const [storyDeleting, setStoryDeleting] = useState(false);
+  const storyVideoRef = useRef(null);
+  const storyHoldTimeoutRef = useRef(null);
+  const storyHoldTriggeredRef = useRef(false);
   const dialogActionRef = useRef(null);
   const dialogInputRef = useRef('');
   const [dialogState, setDialogState] = useState({
@@ -110,6 +146,7 @@ const Home = () => {
   const [hashtagPosts, setHashtagPosts] = useState([]);
   const [hashtagLoading, setHashtagLoading] = useState(false);
   const [hashtagError, setHashtagError] = useState(null);
+  const deepLinkHandledRef = useRef('');
   const engagementLoadedRef = useRef(new Set());
   const engagementInFlightRef = useRef(new Set());
   const [toasts, setToasts] = useState([]);
@@ -123,6 +160,273 @@ const Home = () => {
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   };
+
+  const fetchStories = useCallback(async ({ silent = false } = {}) => {
+    try {
+      if (!silent) setStoriesLoading(true);
+      const data = await storyService.getFeed();
+      setStoryGroups(Array.isArray(data.groups) ? data.groups : []);
+    } catch (error) {
+      console.error('Error loading stories:', error);
+    } finally {
+      if (!silent) setStoriesLoading(false);
+    }
+  }, []);
+
+  const markStoryViewed = useCallback(async (storyId) => {
+    try {
+      await storyService.markViewed(storyId);
+      setStoryGroups((prev) => prev.map((group) => {
+        const stories = group.stories.map((story) => (
+          story.id === storyId ? { ...story, hasViewed: true } : story
+        ));
+        return {
+          ...group,
+          stories,
+          hasUnviewed: stories.some((story) => !story.hasViewed),
+        };
+      }));
+    } catch (error) {
+      console.error('Unable to mark story viewed:', error);
+    }
+  }, []);
+
+  const openStoryViewer = useCallback((groupIndex) => {
+    const group = storyGroups[groupIndex];
+    if (!group || !Array.isArray(group.stories) || group.stories.length === 0) return;
+
+    const firstUnviewedIndex = group.stories.findIndex((story) => !story.hasViewed);
+    const storyIndex = firstUnviewedIndex >= 0 ? firstUnviewedIndex : 0;
+
+    setStoryViewer({ open: true, groupIndex, storyIndex });
+  }, [storyGroups]);
+
+  const closeStoryViewer = useCallback(() => {
+    setStoryViewer({ open: false, groupIndex: 0, storyIndex: 0 });
+  }, []);
+
+  const currentStoryGroup = storyGroups[storyViewer.groupIndex] || null;
+  const currentStory = currentStoryGroup?.stories?.[storyViewer.storyIndex] || null;
+  const currentStoryDuration = useMemo(() => {
+    if (!currentStory) return STORY_PHOTO_DURATION_MS;
+    if (currentStory.mediaType === 'TEXT') return STORY_TEXT_DURATION_MS;
+    if (currentStory.mediaType === 'VIDEO') return storyVideoDurationMs || STORY_VIDEO_FALLBACK_DURATION_MS;
+    return STORY_PHOTO_DURATION_MS;
+  }, [currentStory, storyVideoDurationMs]);
+  const effectiveStoryPaused = isStoryPaused || dialogState.open;
+
+  const goToNextStory = useCallback(() => {
+    setStoryViewer((prev) => {
+      const group = storyGroups[prev.groupIndex];
+      if (!group) return prev;
+
+      if (prev.storyIndex < group.stories.length - 1) {
+        return { ...prev, storyIndex: prev.storyIndex + 1 };
+      }
+
+      if (prev.groupIndex < storyGroups.length - 1) {
+        return { ...prev, groupIndex: prev.groupIndex + 1, storyIndex: 0 };
+      }
+
+      return { open: false, groupIndex: 0, storyIndex: 0 };
+    });
+  }, [storyGroups]);
+
+  const goToPrevStory = useCallback(() => {
+    setStoryViewer((prev) => {
+      if (prev.storyIndex > 0) {
+        return { ...prev, storyIndex: prev.storyIndex - 1 };
+      }
+
+      if (prev.groupIndex > 0) {
+        const previousGroup = storyGroups[prev.groupIndex - 1];
+        return {
+          ...prev,
+          groupIndex: prev.groupIndex - 1,
+          storyIndex: Math.max(0, (previousGroup?.stories?.length || 1) - 1),
+        };
+      }
+
+      return prev;
+    });
+  }, [storyGroups]);
+
+  const startStoryHold = useCallback(() => {
+    storyHoldTriggeredRef.current = false;
+    if (storyHoldTimeoutRef.current) {
+      window.clearTimeout(storyHoldTimeoutRef.current);
+    }
+
+    storyHoldTimeoutRef.current = window.setTimeout(() => {
+      storyHoldTriggeredRef.current = true;
+      setIsStoryPaused(true);
+    }, 140);
+  }, []);
+
+  const endStoryHold = useCallback(() => {
+    if (storyHoldTimeoutRef.current) {
+      window.clearTimeout(storyHoldTimeoutRef.current);
+      storyHoldTimeoutRef.current = null;
+    }
+    setIsStoryPaused(false);
+  }, []);
+
+  const handleStoryTap = useCallback((direction) => {
+    if (storyHoldTriggeredRef.current) {
+      storyHoldTriggeredRef.current = false;
+      return;
+    }
+
+    if (direction === 'prev') {
+      goToPrevStory();
+      return;
+    }
+
+    goToNextStory();
+  }, [goToNextStory, goToPrevStory]);
+
+  useEffect(() => {
+    setStoryProgress(0);
+    setStoryVideoDurationMs(null);
+    setIsStoryPaused(false);
+  }, [storyViewer.open, storyViewer.groupIndex, storyViewer.storyIndex]);
+
+  useEffect(() => {
+    if (!storyViewer.open || !currentStory || effectiveStoryPaused) return;
+
+    const interval = window.setInterval(() => {
+      setStoryProgress((prev) => {
+        const next = prev + (100 / (currentStoryDuration / 100));
+        if (next >= 100) {
+          window.clearInterval(interval);
+          goToNextStory();
+          return 100;
+        }
+        return next;
+      });
+    }, 100);
+
+    return () => window.clearInterval(interval);
+  }, [storyViewer.open, currentStory?.id, currentStoryDuration, goToNextStory, effectiveStoryPaused]);
+
+  useEffect(() => {
+    const videoEl = storyVideoRef.current;
+    if (!videoEl) return;
+
+    if (effectiveStoryPaused) {
+      videoEl.pause();
+      return;
+    }
+
+    videoEl.play().catch(() => {});
+  }, [effectiveStoryPaused, currentStory?.id]);
+
+  const handleStoryMediaUpload = (type) => async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setStoryDraft((prev) => ({
+        ...prev,
+        mediaType: type,
+        mediaUrl: String(dataUrl || ''),
+      }));
+    } catch (error) {
+      showToast('Unable to read selected media', 'error');
+    }
+  };
+
+  const handleCreateStory = async () => {
+    if (!storyDraft.mediaUrl && !storyDraft.textContent.trim()) {
+      showToast('Story needs text or media', 'error');
+      return;
+    }
+
+    setStorySaving(true);
+    try {
+      await storyService.createStory({
+        mediaType: storyDraft.mediaUrl ? storyDraft.mediaType : 'TEXT',
+        mediaUrl: storyDraft.mediaUrl || null,
+        textContent: storyDraft.textContent || '',
+        background: storyDraft.background || '#0f172a',
+      });
+
+      setShowStoryComposer(false);
+      setStoryDraft({
+        mediaType: 'TEXT',
+        mediaUrl: '',
+        textContent: '',
+        background: '#0f172a',
+      });
+      await fetchStories();
+      showToast('Story added', 'success');
+    } catch (error) {
+      showToast(error.message || 'Unable to create story', 'error');
+    } finally {
+      setStorySaving(false);
+    }
+  };
+
+  const handleDeleteCurrentStory = useCallback(() => {
+    if (!currentStory || !currentStoryGroup?.isOwn || storyDeleting) return;
+
+    setDialogState({
+      open: true,
+      title: 'Delete story',
+      message: 'Are you sure you want to delete this story?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+      showInput: false,
+      inputPlaceholder: '',
+    });
+
+    dialogActionRef.current = async () => {
+      setStoryDeleting(true);
+      try {
+        await storyService.deleteStory(currentStory.id);
+        showToast('Story deleted', 'success');
+        closeStoryViewer();
+        await fetchStories({ silent: true });
+      } catch (error) {
+        showToast(error.message || 'Unable to delete story', 'error');
+      } finally {
+        setStoryDeleting(false);
+        setDialogState((prev) => ({ ...prev, open: false }));
+        dialogActionRef.current = null;
+      }
+    };
+  }, [currentStory, currentStoryGroup?.isOwn, storyDeleting, closeStoryViewer, fetchStories]);
+
+  const highlightAndScrollPost = useCallback((postId) => {
+    const element = document.getElementById(`post-${postId}`);
+    if (!element) return false;
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.classList.add('post-deeplink-highlight');
+    window.setTimeout(() => {
+      element.classList.remove('post-deeplink-highlight');
+    }, 1600);
+    return true;
+  }, []);
+
+  const fetchPostById = useCallback(async (postId) => {
+    const token = authService.getToken();
+    if (!token) return null;
+
+    const res = await apiFetch(`${API_CONFIG.ENDPOINTS.POSTS}/${postId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.message || 'Unable to open post');
+    }
+
+    return data.post || null;
+  }, []);
+
   const currentUserId = useMemo(() => authService.getUserId(), []);
 
   const postsToRender = useMemo(() => {
@@ -269,6 +573,19 @@ const Home = () => {
     };
   }, []);
 
+  useEffect(() => {
+    fetchStories();
+    const interval = setInterval(() => {
+      fetchStories({ silent: true });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [fetchStories]);
+
+  useEffect(() => {
+    if (!storyViewer.open || !currentStory || currentStory.hasViewed) return;
+    markStoryViewed(currentStory.id);
+  }, [storyViewer.open, currentStory?.id, currentStory?.hasViewed, markStoryViewed]);
+
   // Close menu when user starts typing
   useEffect(() => {
     if (composerText && openMenuPostId !== null) {
@@ -300,6 +617,8 @@ const Home = () => {
       const token = authService.getToken();
       const endpoint = mode === 'friends'
         ? `${API_CONFIG.ENDPOINTS.USERS}/friends/list`
+        : mode === 'requests'
+          ? `${API_CONFIG.ENDPOINTS.USERS}/follow-requests/incoming`
         : `${API_CONFIG.ENDPOINTS.USERS}/search?q=`;
 
       const res = await fetch(endpoint, {
@@ -307,17 +626,49 @@ const Home = () => {
       });
       
       if (!res.ok) {
-        throw new Error(mode === 'friends' ? 'Failed to load friends' : 'Failed to load users');
+        throw new Error(
+          mode === 'friends'
+            ? 'Failed to load friends'
+            : mode === 'requests'
+              ? 'Failed to load follow requests'
+              : 'Failed to load users'
+        );
       }
       
       const data = await res.json();
       const users = mode === 'friends'
         ? (Array.isArray(data.friends) ? data.friends : [])
-        : (Array.isArray(data.users) ? data.users : []);
+        : mode === 'requests'
+          ? (Array.isArray(data.requests)
+            ? data.requests.map((request) => ({
+              ...request,
+              id: request.fromUserId,
+              requestId: request.id,
+            }))
+            : [])
+          : (Array.isArray(data.users) ? data.users : []);
+
+      if (mode === 'requests') {
+        const requestMap = users.reduce((acc, item) => {
+          acc[item.id] = item.requestId;
+          return acc;
+        }, {});
+        setIncomingRequestByUserId(requestMap);
+        setIncomingRequestCount(users.length);
+      }
+
       const filtered = users.filter((user) => user.id !== profile?.id && user.role !== 'ADMIN');
       setPeopleUsers(filtered);
     } catch (error) {
-      setPeopleUsersError(error.message || (mode === 'friends' ? 'Unable to load friends' : 'Unable to load people'));
+      setPeopleUsersError(
+        error.message || (
+          mode === 'friends'
+            ? 'Unable to load friends'
+            : mode === 'requests'
+              ? 'Unable to load follow requests'
+              : 'Unable to load people'
+        )
+      );
     } finally {
       setPeopleUsersLoading(false);
     }
@@ -327,20 +678,89 @@ const Home = () => {
     const token = authService.getToken();
     if (!token) {
       setFollowingIds(new Set());
+      setPendingFollowRequestIds(new Set());
       return;
     }
 
     try {
-      const res = await fetch(`${API_CONFIG.ENDPOINTS.USERS}/following/list`, {
+      const [followingRes, outgoingRes] = await Promise.all([
+        fetch(`${API_CONFIG.ENDPOINTS.USERS}/following/list`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_CONFIG.ENDPOINTS.USERS}/follow-requests/outgoing`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+
+      const followingData = await followingRes.json();
+      const ids = Array.isArray(followingData.following) ? followingData.following.map((u) => u.id) : [];
+      setFollowingIds(new Set(ids));
+
+      if (outgoingRes.ok) {
+        const outgoingData = await outgoingRes.json();
+        const pendingIds = Array.isArray(outgoingData.requests)
+          ? outgoingData.requests.map((request) => request.toUserId)
+          : [];
+        setPendingFollowRequestIds(new Set(pendingIds));
+      } else {
+        setPendingFollowRequestIds(new Set());
+      }
+
+      const incomingRes = await fetch(`${API_CONFIG.ENDPOINTS.USERS}/follow-requests/incoming`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      const ids = Array.isArray(data.following) ? data.following.map((u) => u.id) : [];
-      setFollowingIds(new Set(ids));
+      if (incomingRes.ok) {
+        const incomingData = await incomingRes.json();
+        const incomingRequests = Array.isArray(incomingData.requests) ? incomingData.requests : [];
+        setIncomingRequestCount(incomingRequests.length);
+      } else {
+        setIncomingRequestCount(0);
+      }
     } catch (error) {
       console.error('Error fetching following list:', error);
     }
   }, []);
+
+  const handleIncomingFollowRequest = async (userId, action) => {
+    const requestId = incomingRequestByUserId[userId];
+    if (!requestId) return;
+
+    try {
+      const token = authService.getToken();
+      const response = await apiFetch(`${API_CONFIG.ENDPOINTS.USERS}/follow-requests/${requestId}/${action}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const responseData = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showToast(responseData.message || `Failed to ${action} request`, 'error');
+        return;
+      }
+
+      setPeopleUsers((prev) => prev.filter((user) => user.id !== userId));
+      setIncomingRequestByUserId((prev) => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+      setIncomingRequestCount((prev) => Math.max(0, prev - 1));
+      if (action === 'accept') {
+        setFollowingIds((prev) => {
+          const next = new Set(prev);
+          next.add(userId);
+          return next;
+        });
+      }
+      showToast(action === 'accept' ? 'Follow request accepted' : 'Follow request rejected', 'success');
+    } catch (error) {
+      console.error('Error handling follow request:', error);
+      showToast('Unable to process request', 'error');
+    }
+  };
 
   useEffect(() => {
     if (showPeopleModal) {
@@ -350,6 +770,10 @@ const Home = () => {
   }, [showPeopleModal, peopleModalMode, fetchPeopleUsers, fetchFollowingList]);
 
   useEffect(() => {
+    fetchFollowingList();
+  }, [fetchFollowingList]);
+
+  useEffect(() => {
     const isMountedRef = { current: true };
     fetchNewUsers(isMountedRef);
 
@@ -357,6 +781,73 @@ const Home = () => {
       isMountedRef.current = false;
     };
   }, [fetchNewUsers]);
+
+  useEffect(() => {
+    const hash = location.hash || '';
+    if (!hash.startsWith('#post-')) return;
+
+    if (deepLinkHandledRef.current === hash) return;
+
+    const postId = Number(hash.replace('#post-', ''));
+    if (!postId || Number.isNaN(postId)) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryScroll = () => {
+      if (cancelled) return true;
+      return highlightAndScrollPost(postId);
+    };
+
+    if (tryScroll()) {
+      deepLinkHandledRef.current = hash;
+      return;
+    }
+
+    const interval = window.setInterval(async () => {
+      if (cancelled) {
+        window.clearInterval(interval);
+        return;
+      }
+
+      attempts += 1;
+      if (tryScroll()) {
+        deepLinkHandledRef.current = hash;
+        window.clearInterval(interval);
+        return;
+      }
+
+      if (attempts < 10) return;
+
+      window.clearInterval(interval);
+
+      try {
+        const post = await fetchPostById(postId);
+        if (cancelled || !post) return;
+
+        setSessionOwnPosts((prev) => {
+          const exists = prev.some((item) => item.id === post.id);
+          if (exists) return prev;
+          return [post, ...prev];
+        });
+
+        window.setTimeout(() => {
+          if (!cancelled && tryScroll()) {
+            deepLinkHandledRef.current = hash;
+          }
+        }, 220);
+      } catch (error) {
+        if (!cancelled) {
+          showToast(error.message || 'Unable to open linked post', 'error');
+        }
+      }
+    }, 140);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [location.hash, highlightAndScrollPost, fetchPostById]);
 
   const peopleFiltered = useMemo(() => {
     const query = peopleSearch.trim().toLowerCase();
@@ -598,19 +1089,26 @@ const Home = () => {
         }
       });
 
+      const responseData = await response.json().catch(() => ({}));
+
       if (response.ok) {
         const isMountedRef = { current: true };
         fetchNewUsers(isMountedRef);
-        showToast('Now following user', 'success');
+        if (responseData.status === 'REQUESTED') {
+          setPendingFollowRequestIds((prev) => new Set([...prev, userId]));
+          showToast('Follow request sent', 'success');
+        } else {
+          showToast('Now following user', 'success');
+        }
       } else {
-        showToast('Failed to follow user', 'error');
+        showToast(responseData.message || 'Failed to follow user', 'error');
       }
     } catch (error) {
       console.error('Error following user:', error);
     }
   };
 
-  const handleToggleFollowUser = async (userId, isFollowing) => {
+  const handleToggleFollowUser = async (userId, relationState) => {
     try {
       const token = authService.getToken();
       if (!token) {
@@ -618,27 +1116,44 @@ const Home = () => {
         return;
       }
 
+      const isFollowing = relationState === 'following';
+      const isRequested = relationState === 'requested';
+
       const response = await apiFetch(`${API_CONFIG.ENDPOINTS.USERS}/${userId}/follow`, {
-        method: isFollowing ? 'DELETE' : 'POST',
+        method: isFollowing || isRequested ? 'DELETE' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         }
       });
 
+      const responseData = await response.json().catch(() => ({}));
+
       if (response.ok) {
-        setFollowingIds((prev) => {
-          const next = new Set(prev);
-          if (isFollowing) {
+        if (responseData.status === 'UNFOLLOWED') {
+          setFollowingIds((prev) => {
+            const next = new Set(prev);
             next.delete(userId);
-          } else {
+            return next;
+          });
+          showToast('Unfollowed user', 'success');
+        } else if (responseData.status === 'REQUEST_CANCELLED') {
+          setPendingFollowRequestIds((prev) => {
+            const next = new Set(prev);
+            next.delete(userId);
+            return next;
+          });
+          showToast('Follow request cancelled', 'success');
+        } else if (responseData.status === 'REQUESTED') {
+          setPendingFollowRequestIds((prev) => {
+            const next = new Set(prev);
             next.add(userId);
-          }
-          return next;
-        });
-        showToast(isFollowing ? 'Unfollowed user' : 'Now following user', 'success');
+            return next;
+          });
+          showToast('Follow request sent', 'success');
+        }
       } else {
-        showToast(isFollowing ? 'Failed to unfollow user' : 'Failed to follow user', 'error');
+        showToast(responseData.message || (isFollowing || isRequested ? 'Failed to remove relation' : 'Failed to follow user'), 'error');
       }
     } catch (error) {
       console.error('Error toggling follow:', error);
@@ -1031,6 +1546,9 @@ const Home = () => {
     setDialogState((prev) => ({ ...prev, open: false, showInput: false }));
     setDialogInput('');
     dialogActionRef.current = null;
+    if (storyViewer.open) {
+      setIsStoryPaused(false);
+    }
   };
 
   const openAlert = (message, title = 'Notice') => {
@@ -1324,12 +1842,67 @@ const Home = () => {
                 )}
               </div>
               <div className="nav-item" onClick={() => openPeopleModal('friends')} style={{ cursor: 'pointer' }}>👥 Friends</div>
+              <div className="nav-item" onClick={() => openPeopleModal('requests')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span>✅ Follow Requests</span>
+                {incomingRequestCount > 0 && (
+                  <span style={{
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    borderRadius: '999px',
+                    minWidth: '20px',
+                    height: '20px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 6px',
+                    fontSize: '11px',
+                    fontWeight: '700'
+                  }}>
+                    {incomingRequestCount > 99 ? '99+' : incomingRequestCount}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </aside>
 
         {/* Feed */}
         <section className="feed">
+          <div className="stories-strip">
+            <button className="story-add-card" onClick={() => setShowStoryComposer(true)}>
+              <span className="story-add-plus">＋</span>
+              <span>Add Story</span>
+            </button>
+
+            {storiesLoading && <div className="stories-loading">Loading stories...</div>}
+
+            {!storiesLoading && storyGroups.map((group, groupIndex) => {
+              const profileName = getUserDisplayName(group.user);
+              const latestStory = group.stories[group.stories.length - 1];
+              const hasUnviewed = Boolean(group.hasUnviewed);
+
+              return (
+                <button
+                  key={group.user.id}
+                  className={`story-bubble ${hasUnviewed ? 'unviewed' : 'viewed'}`}
+                  onClick={() => openStoryViewer(groupIndex)}
+                >
+                  <div className="story-avatar-wrap">
+                    <div className="story-avatar">
+                      {group.user.profileImageUrl ? (
+                        <img src={group.user.profileImageUrl} alt={profileName} />
+                      ) : (
+                        profileName[0]
+                      )}
+                    </div>
+                  </div>
+                  <span className="story-name">{group.isOwn ? 'Your story' : profileName}</span>
+                  {latestStory && <span className="story-time">{timeAgo(latestStory.createdAt)}</span>}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="compose-card">
             <LexicalEditor
               key={composeEditorKey}
@@ -1711,10 +2284,18 @@ const Home = () => {
             }}>
               <div>
                 <div style={{ fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>
-                  {peopleModalMode === 'friends' ? 'My Friends' : `People on ${appName}`}
+                  {peopleModalMode === 'friends'
+                    ? 'My Friends'
+                    : peopleModalMode === 'requests'
+                      ? 'Follow Requests'
+                      : `People on ${appName}`}
                 </div>
                 <div style={{ fontSize: '13px', color: '#64748b' }}>
-                  {peopleModalMode === 'friends' ? 'Chat or view your friends' : 'Browse and follow members'}
+                  {peopleModalMode === 'friends'
+                    ? 'Chat or view your friends'
+                    : peopleModalMode === 'requests'
+                      ? 'Accept or reject incoming follow requests'
+                      : 'Browse and follow members'}
                 </div>
               </div>
               <button
@@ -1734,7 +2315,11 @@ const Home = () => {
             <div style={{ padding: '16px 20px' }}>
               <input
                 type="text"
-                placeholder={peopleModalMode === 'friends' ? 'Search friends by name, username, or email...' : 'Search people by name, username, or email...'}
+                placeholder={peopleModalMode === 'friends'
+                  ? 'Search friends by name, username, or email...'
+                  : peopleModalMode === 'requests'
+                    ? 'Search follow requests by name, username, or email...'
+                    : 'Search people by name, username, or email...'}
                 value={peopleSearch}
                 onChange={(e) => setPeopleSearch(e.target.value)}
                 style={{
@@ -1750,7 +2335,11 @@ const Home = () => {
             <div style={{ padding: '0 20px 20px 20px' }}>
               {peopleUsersLoading && (
                 <div style={{ fontSize: '13px', color: '#64748b', padding: '12px 0' }}>
-                  {peopleModalMode === 'friends' ? 'Loading friends...' : 'Loading people...'}
+                  {peopleModalMode === 'friends'
+                    ? 'Loading friends...'
+                    : peopleModalMode === 'requests'
+                      ? 'Loading follow requests...'
+                      : 'Loading people...'}
                 </div>
               )}
               {peopleUsersError && (
@@ -1758,7 +2347,11 @@ const Home = () => {
               )}
               {!peopleUsersLoading && !peopleUsersError && peopleVirtual.total === 0 && (
                 <div style={{ fontSize: '13px', color: '#64748b', padding: '12px 0' }}>
-                  {peopleModalMode === 'friends' ? 'No friends found.' : 'No people found.'}
+                  {peopleModalMode === 'friends'
+                    ? 'No friends found.'
+                    : peopleModalMode === 'requests'
+                      ? 'No follow requests found.'
+                      : 'No people found.'}
                 </div>
               )}
 
@@ -1786,6 +2379,8 @@ const Home = () => {
                         const name = getUserDisplayName(user);
                         const handle = `@${getUserHandle(user)}`;
                         const isFollowing = followingIds.has(user.id);
+                        const isRequested = pendingFollowRequestIds.has(user.id);
+                        const relationState = isFollowing ? 'following' : (isRequested ? 'requested' : 'none');
 
                         return (
                           <div
@@ -1857,21 +2452,60 @@ const Home = () => {
                                   </svg>
                                 </button>
                               </div>
+                            ) : peopleModalMode === 'requests' ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <button
+                                  onClick={() => handleIncomingFollowRequest(user.id, 'accept')}
+                                  style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #10b981',
+                                    background: '#10b981',
+                                    color: '#ffffff',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() => handleIncomingFollowRequest(user.id, 'reject')}
+                                  style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#0f172a',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  Reject
+                                </button>
+                              </div>
                             ) : (
                               <button
-                                onClick={() => handleToggleFollowUser(user.id, isFollowing)}
+                                onClick={() => handleToggleFollowUser(user.id, relationState)}
                                 style={{
                                   padding: '6px 12px',
                                   borderRadius: '6px',
-                                  border: isFollowing ? '1px solid #fca5a5' : '1px solid #cbd5e1',
-                                  background: isFollowing ? '#fee2e2' : '#ffffff',
-                                  color: isFollowing ? '#b91c1c' : '#0f172a',
+                                  border: isFollowing
+                                    ? '1px solid #fca5a5'
+                                    : (isRequested ? '1px solid #cbd5e1' : '1px solid #cbd5e1'),
+                                  background: isFollowing
+                                    ? '#fee2e2'
+                                    : (isRequested ? '#f1f5f9' : '#ffffff'),
+                                  color: isFollowing
+                                    ? '#b91c1c'
+                                    : (isRequested ? '#334155' : '#0f172a'),
                                   cursor: 'pointer',
                                   fontSize: '12px',
                                   fontWeight: '600'
                                 }}
                               >
-                                {isFollowing ? 'Unfollow' : 'Follow'}
+                                {isFollowing ? 'Unfollow' : (isRequested ? 'Cancel Request' : 'Follow')}
                               </button>
                             )}
                           </div>
@@ -1880,6 +2514,207 @@ const Home = () => {
                     </div>
                   </div>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStoryComposer && (
+        <div className="story-modal-overlay" onClick={() => setShowStoryComposer(false)}>
+          <div className="story-composer-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create Story</h3>
+            <textarea
+              placeholder="Share a quick update..."
+              value={storyDraft.textContent}
+              onChange={(e) => setStoryDraft((prev) => ({ ...prev, textContent: e.target.value }))}
+              rows={4}
+            />
+
+            <div className="story-composer-row">
+              <label className="story-upload-btn" title="Add photo" aria-label="Add photo">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                  <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                <input type="file" accept="image/*" onChange={handleStoryMediaUpload('IMAGE')} />
+              </label>
+              <label className="story-upload-btn" title="Add video" aria-label="Add video">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+                <input type="file" accept="video/*" onChange={handleStoryMediaUpload('VIDEO')} />
+              </label>
+              <input
+                type="color"
+                value={storyDraft.background}
+                onChange={(e) => setStoryDraft((prev) => ({ ...prev, background: e.target.value }))}
+                title="Story background"
+                aria-label="Story background"
+              />
+            </div>
+
+            {storyDraft.mediaUrl && (
+              <div className="story-preview-media">
+                {storyDraft.mediaType === 'VIDEO' ? (
+                  <video src={storyDraft.mediaUrl} controls />
+                ) : (
+                  <img src={storyDraft.mediaUrl} alt="Story preview" />
+                )}
+              </div>
+            )}
+
+            <div className="story-modal-actions">
+              <button onClick={() => setShowStoryComposer(false)} title="Close" aria-label="Close story composer">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+              <button onClick={handleCreateStory} disabled={storySaving} title="Post" aria-label="Post story">
+                {storySaving ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"></circle>
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {storyViewer.open && currentStory && currentStoryGroup && (
+        <div className="story-modal-overlay" onClick={closeStoryViewer}>
+          <div className="story-viewer-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="story-viewer-header">
+              <div className="story-viewer-user">
+                {currentStoryGroup.user.profileImageUrl ? (
+                  <img src={currentStoryGroup.user.profileImageUrl} alt={getUserDisplayName(currentStoryGroup.user)} />
+                ) : (
+                  <div className="story-viewer-fallback">{getUserDisplayName(currentStoryGroup.user)[0]}</div>
+                )}
+                <div>
+                  <strong>{currentStoryGroup.isOwn ? 'Your story' : getUserDisplayName(currentStoryGroup.user)}</strong>
+                  <span>{timeAgo(currentStory.createdAt)}</span>
+                </div>
+              </div>
+              <div className="story-viewer-header-actions">
+                {currentStoryGroup.isOwn && (
+                  <span className="story-view-count" title="Views" aria-label={`Story views: ${currentStory.viewCount || 0}`}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <span>{currentStory.viewCount || 0}</span>
+                  </span>
+                )}
+
+                {currentStoryGroup.isOwn && (
+                  <button
+                    onClick={handleDeleteCurrentStory}
+                    title="Delete story"
+                    aria-label="Delete story"
+                    disabled={storyDeleting}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                      <path d="M10 11v6"></path>
+                      <path d="M14 11v6"></path>
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                    </svg>
+                  </button>
+                )}
+
+                <button onClick={closeStoryViewer} title="Close story" aria-label="Close story">✕</button>
+              </div>
+            </div>
+
+            <div className="story-viewer-content" style={{ background: currentStory.background || '#0f172a' }}>
+              <div className="story-progress-track" aria-hidden="true">
+                {currentStoryGroup.stories.map((story, index) => {
+                  const isPast = index < storyViewer.storyIndex;
+                  const isCurrent = index === storyViewer.storyIndex;
+                  const width = isPast ? 100 : (isCurrent ? storyProgress : 0);
+
+                  return (
+                    <div key={story.id} className="story-progress-segment">
+                      <div className="story-progress-fill" style={{ width: `${width}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                className="story-tap-zone left"
+                onClick={() => handleStoryTap('prev')}
+                onMouseDown={startStoryHold}
+                onMouseUp={endStoryHold}
+                onMouseLeave={endStoryHold}
+                onTouchStart={startStoryHold}
+                onTouchEnd={endStoryHold}
+                onTouchCancel={endStoryHold}
+                aria-label="Previous story"
+                title="Previous"
+              >
+                <span className="story-nav-arrow" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
+                </span>
+              </button>
+
+              <div key={`${currentStoryGroup.user.id}-${currentStory.id}`} className="story-media-stage">
+                {currentStory.mediaUrl ? (
+                  currentStory.mediaType === 'VIDEO' ? (
+                    <video
+                      ref={storyVideoRef}
+                      src={currentStory.mediaUrl}
+                      autoPlay
+                      muted
+                      playsInline
+                      onLoadedMetadata={(event) => {
+                        const durationSec = Number(event.currentTarget.duration || 0);
+                        if (durationSec > 0) {
+                          setStoryVideoDurationMs(Math.min(durationSec * 1000, 20000));
+                        }
+                      }}
+                      onEnded={goToNextStory}
+                    />
+                  ) : (
+                    <img src={currentStory.mediaUrl} alt="Story" />
+                  )
+                ) : (
+                  <div className="story-viewer-text-only">{currentStory.textContent || 'Story'}</div>
+                )}
+              </div>
+
+              <button
+                className="story-tap-zone right"
+                onClick={() => handleStoryTap('next')}
+                onMouseDown={startStoryHold}
+                onMouseUp={endStoryHold}
+                onMouseLeave={endStoryHold}
+                onTouchStart={startStoryHold}
+                onTouchEnd={endStoryHold}
+                onTouchCancel={endStoryHold}
+                aria-label="Next story"
+                title="Next"
+              >
+                <span className="story-nav-arrow" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                  </svg>
+                </span>
+              </button>
+
+              {currentStory.textContent && currentStory.mediaUrl && (
+                <div className="story-viewer-caption">{currentStory.textContent}</div>
               )}
             </div>
           </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
 import apiFetch from '../utils/apiFetch';
 import { API_CONFIG } from '../config/api';
@@ -15,13 +15,18 @@ import '../styles/Profile.css';
 const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { settings } = useSiteSettings();
   const appName = settings?.appName || 'NEXUS';
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isRequested, setIsRequested] = useState(false);
+  const [incomingRequestId, setIncomingRequestId] = useState(null);
   const [followLoading, setFollowLoading] = useState(false);
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const [userPosts, setUserPosts] = useState([]);
   const [likedPosts, setLikedPosts] = useState({});
   const [likeCounts, setLikeCounts] = useState({});
@@ -88,11 +93,6 @@ const Profile = () => {
         setUser(userData);
         setFollowerCount(userData.followerCount || 0);
         setFollowingCount(userData.followingCount || 0);
-
-        // Check if current user is following this user (if not own profile)
-        if (!isOwnProfile && userData.followers) {
-          setIsFollowing(userData.followers.some(f => f.id === currentUserId));
-        }
       } catch (err) {
         setError(err.message || 'Unable to load profile');
       } finally {
@@ -104,6 +104,67 @@ const Profile = () => {
       fetchUserProfile();
     }
   }, [userId, currentUserId, isOwnProfile]);
+
+  useEffect(() => {
+    const fetchRelationship = async () => {
+      if (isOwnProfile) {
+        setIsFollowing(false);
+        setIsRequested(false);
+        setIncomingRequestId(null);
+        return;
+      }
+
+      try {
+        const token = authService.getToken();
+        const res = await apiFetch(`${API_CONFIG.ENDPOINTS.USERS}/${userId}/relationship`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          return;
+        }
+
+        const data = await res.json();
+        const relationship = data.relationship;
+        setIsFollowing(relationship === 'FOLLOWING');
+        setIsRequested(relationship === 'REQUESTED');
+        setIncomingRequestId(relationship === 'INCOMING_REQUEST' ? data.requestId : null);
+      } catch (err) {
+        console.error('Error fetching relationship:', err);
+      }
+    };
+
+    if (userId && currentUserId) {
+      fetchRelationship();
+    }
+  }, [userId, currentUserId, isOwnProfile]);
+
+  useEffect(() => {
+    const fetchIncomingRequests = async () => {
+      if (!isOwnProfile) return;
+
+      setRequestsLoading(true);
+      try {
+        const token = authService.getToken();
+        const res = await apiFetch(`${API_CONFIG.ENDPOINTS.USERS}/follow-requests/incoming`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          throw new Error('Unable to load follow requests');
+        }
+
+        const data = await res.json();
+        setIncomingRequests(Array.isArray(data.requests) ? data.requests : []);
+      } catch (err) {
+        console.error('Error loading incoming requests:', err);
+      } finally {
+        setRequestsLoading(false);
+      }
+    };
+
+    fetchIncomingRequests();
+  }, [isOwnProfile]);
 
   // Fetch user's posts
   useEffect(() => {
@@ -128,6 +189,25 @@ const Profile = () => {
       fetchUserPosts();
     }
   }, [userId]);
+
+  useEffect(() => {
+    const hash = location.hash || '';
+    if (!hash.startsWith('#post-')) return;
+
+    const postId = Number(hash.replace('#post-', ''));
+    if (!postId || Number.isNaN(postId)) return;
+
+    const element = document.getElementById(`post-${postId}`);
+    if (!element) return;
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.classList.add('post-deeplink-highlight');
+    const timer = window.setTimeout(() => {
+      element.classList.remove('post-deeplink-highlight');
+    }, 1600);
+
+    return () => window.clearTimeout(timer);
+  }, [location.hash, userPosts]);
 
   const countAllComments = (comments) => {
     if (!Array.isArray(comments) || comments.length === 0) return 0;
@@ -239,8 +319,15 @@ const Profile = () => {
     setFollowLoading(true);
     try {
       const token = authService.getToken();
-      const method = isFollowing ? 'DELETE' : 'POST';
-      const endpoint = `${API_CONFIG.ENDPOINTS.USERS}/${userId}/follow`;
+      let endpoint = `${API_CONFIG.ENDPOINTS.USERS}/${userId}/follow`;
+      let method = 'POST';
+
+      if (incomingRequestId) {
+        endpoint = `${API_CONFIG.ENDPOINTS.USERS}/follow-requests/${incomingRequestId}/accept`;
+        method = 'PATCH';
+      } else if (isFollowing || isRequested) {
+        method = 'DELETE';
+      }
 
       const res = await apiFetch(endpoint, {
         method,
@@ -253,19 +340,51 @@ const Profile = () => {
         throw new Error(responseData.message || 'Failed to toggle follow');
       }
 
-      // Update the follower count
-      if (isFollowing) {
+      if (responseData.status === 'UNFOLLOWED') {
         setFollowerCount(prev => Math.max(0, prev - 1));
-      } else {
-        setFollowerCount(prev => prev + 1);
+        setIsFollowing(false);
+        setIsRequested(false);
+        setIncomingRequestId(null);
+      } else if (responseData.status === 'REQUESTED') {
+        setIsRequested(true);
+        setIsFollowing(false);
+        setIncomingRequestId(null);
+      } else if (responseData.status === 'REQUEST_CANCELLED') {
+        setIsRequested(false);
+        setIsFollowing(false);
+        setIncomingRequestId(null);
+      } else if (responseData.status === 'ACCEPTED') {
+        setIncomingRequestId(null);
+        setIncomingRequests((prev) => prev.filter((request) => request.id !== incomingRequestId));
+        openAlert('Follow request accepted', 'Success');
       }
-      
-      setIsFollowing(!isFollowing);
     } catch (err) {
       console.error('Error toggling follow:', err);
       openAlert(`Error: ${err.message}`);
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const handleIncomingRequestAction = async (requestId, action) => {
+    try {
+      const token = authService.getToken();
+      const res = await apiFetch(`${API_CONFIG.ENDPOINTS.USERS}/follow-requests/${requestId}/${action}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || `Failed to ${action} request`);
+      }
+
+      setIncomingRequests((prev) => prev.filter((request) => request.id !== requestId));
+      if (action === 'accept') {
+        setFollowerCount((prev) => prev + 1);
+      }
+    } catch (err) {
+      openAlert(`Error: ${err.message}`);
     }
   };
 
@@ -473,7 +592,7 @@ const Profile = () => {
                     disabled={followLoading}
                     style={{
                       padding: '8px 24px',
-                      background: isFollowing ? '#dc2626' : '#667eea',
+                      background: incomingRequestId ? '#059669' : (isFollowing ? '#dc2626' : (isRequested ? '#64748b' : '#667eea')),
                       color: 'white',
                       border: 'none',
                       borderRadius: '8px',
@@ -483,10 +602,39 @@ const Profile = () => {
                       transition: 'all 0.2s ease',
                       opacity: followLoading ? 0.6 : 1
                     }}
-                    onMouseOver={(e) => !followLoading && (e.target.style.background = isFollowing ? '#b91c1c' : '#5568d3')}
-                    onMouseOut={(e) => (e.target.style.background = isFollowing ? '#dc2626' : '#667eea')}
+                    onMouseOver={(e) => {
+                      if (followLoading) return;
+                      if (incomingRequestId) {
+                        e.target.style.background = '#047857';
+                      } else if (isFollowing) {
+                        e.target.style.background = '#b91c1c';
+                      } else if (isRequested) {
+                        e.target.style.background = '#475569';
+                      } else {
+                        e.target.style.background = '#5568d3';
+                      }
+                    }}
+                    onMouseOut={(e) => {
+                      if (incomingRequestId) {
+                        e.target.style.background = '#059669';
+                      } else if (isFollowing) {
+                        e.target.style.background = '#dc2626';
+                      } else if (isRequested) {
+                        e.target.style.background = '#64748b';
+                      } else {
+                        e.target.style.background = '#667eea';
+                      }
+                    }}
                   >
-                    {followLoading ? 'Loading...' : (isFollowing ? 'Unfollow' : 'Follow')}
+                    {followLoading
+                      ? 'Loading...'
+                      : incomingRequestId
+                        ? 'Accept Request'
+                        : isFollowing
+                          ? 'Unfollow'
+                          : isRequested
+                            ? 'Cancel Request'
+                            : 'Follow'}
                   </button>
                   <button 
                     onClick={handleMessage}
@@ -515,6 +663,84 @@ const Profile = () => {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {isOwnProfile && (
+          <div style={{
+            background: 'white',
+            borderRadius: '12px',
+            padding: '24px',
+            marginBottom: '24px',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, color: '#1e293b' }}>Follow Requests</h3>
+              <span style={{ color: '#64748b', fontSize: '13px', fontWeight: '600' }}>{incomingRequests.length} pending</span>
+            </div>
+
+            {requestsLoading ? (
+              <p style={{ margin: 0, color: '#64748b' }}>Loading requests...</p>
+            ) : incomingRequests.length === 0 ? (
+              <p style={{ margin: 0, color: '#64748b' }}>No pending follow requests.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {incomingRequests.map((request) => {
+                  const requestName = getUserDisplayName(request);
+                  return (
+                    <div
+                      key={request.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '10px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        padding: '10px 12px'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#1e293b' }}>{requestName}</div>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>@{getUserHandle(request)}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleIncomingRequestAction(request.id, 'accept')}
+                          style={{
+                            border: '1px solid #10b981',
+                            background: '#10b981',
+                            color: 'white',
+                            borderRadius: '8px',
+                            padding: '6px 10px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleIncomingRequestAction(request.id, 'reject')}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            background: 'white',
+                            color: '#334155',
+                            borderRadius: '8px',
+                            padding: '6px 10px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -555,7 +781,7 @@ const Profile = () => {
                                `${Math.floor(timeAgo / 86400)}d`;
 
                 return (
-                  <article key={post.id} className="post-card profile-post">
+                  <article id={`post-${post.id}`} key={post.id} className="post-card profile-post">
                     <div className="post-header">
                       <div className="post-user">
                         <div className="post-avatar">

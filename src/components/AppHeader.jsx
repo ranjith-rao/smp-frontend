@@ -1,15 +1,28 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
 import logoImage from '../assets/logo.png';
 import { useSiteSettings } from '../context/SiteSettingsContext';
+import { useNotifications } from '../context/NotificationContext';
 import '../styles/AppHeader.css';
 
 const AppHeader = ({ showPageNav = true, children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState(null);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const notificationPanelRef = useRef(null);
   const { settings } = useSiteSettings();
+  const {
+    items: notifications,
+    unreadCount,
+    loading: notificationsLoading,
+    loadingMore,
+    hasMore,
+    fetchNotifications,
+    markAsRead,
+    markAllAsRead,
+  } = useNotifications();
 
   useEffect(() => {
     let isMounted = true;
@@ -36,6 +49,59 @@ const AppHeader = ({ showPageNav = true, children }) => {
   const appName = settings?.appName || 'NEXUS';
   const brandLogo = settings?.logoUrl || logoImage;
 
+  const formatNotificationTime = (dateValue) => {
+    if (!dateValue) return '';
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString();
+  };
+
+  const resolveNotificationLink = (notification) => {
+    if (!notification) return '/home';
+    if (notification.entityType === 'user' && notification.entityId) {
+      return `/profile/${notification.entityId}`;
+    }
+    if (notification.entityType === 'post') {
+      if (notification.userId && notification.entityId) {
+        return `/profile/${notification.userId}#post-${notification.entityId}`;
+      }
+      return '/home';
+    }
+    return '/home';
+  };
+
+  const topNotifications = useMemo(() => notifications.slice(0, 8), [notifications]);
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification) return;
+
+    if (!notification.isRead) {
+      await markAsRead(notification.id);
+    }
+
+    setIsNotificationOpen(false);
+    navigate(resolveNotificationLink(notification));
+  };
+
+  useEffect(() => {
+    if (!isNotificationOpen) return;
+
+    const handleOutsideClick = (event) => {
+      if (notificationPanelRef.current && !notificationPanelRef.current.contains(event.target)) {
+        setIsNotificationOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isNotificationOpen]);
+
+  useEffect(() => {
+    if (isNotificationOpen) {
+      fetchNotifications({ append: false });
+    }
+  }, [isNotificationOpen, fetchNotifications]);
+
   return (
     <header className="app-header">
       <div className="app-header-inner">
@@ -61,6 +127,65 @@ const AppHeader = ({ showPageNav = true, children }) => {
         )}
 
         <div className="app-header-actions">
+          <div className="app-notification-wrap" ref={notificationPanelRef}>
+            <button
+              className="app-notification-button"
+              onClick={() => setIsNotificationOpen((prev) => !prev)}
+              aria-label="Notifications"
+            >
+              🔔
+              {unreadCount > 0 && <span className="app-notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+            </button>
+
+            {isNotificationOpen && (
+              <div className="app-notification-panel">
+                <div className="app-notification-panel-header">
+                  <strong>Notifications</strong>
+                  <button
+                    className="app-notification-read-all"
+                    onClick={markAllAsRead}
+                    disabled={unreadCount === 0}
+                  >
+                    Mark all read
+                  </button>
+                </div>
+
+                {notificationsLoading ? (
+                  <div className="app-notification-empty">Loading notifications...</div>
+                ) : topNotifications.length === 0 ? (
+                  <div className="app-notification-empty">No notifications yet.</div>
+                ) : (
+                  <div className="app-notification-list">
+                    {topNotifications.map((notification) => (
+                      <button
+                        key={notification.id}
+                        className={`app-notification-item ${notification.isRead ? '' : 'unread'}`}
+                        onClick={() => handleNotificationClick(notification)}
+                      >
+                        <div className="app-notification-title-row">
+                          <span className="app-notification-title">{notification.title}</span>
+                          {!notification.isRead && <span className="app-notification-dot" />}
+                        </div>
+                        {notification.body && <div className="app-notification-body">{notification.body}</div>}
+                        <div className="app-notification-time">{formatNotificationTime(notification.createdAt)}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {hasMore && (
+                  <button
+                    className="app-notification-load-more"
+                    onClick={() => fetchNotifications({ append: true })}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? 'Loading...' : 'Load more'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
           <button className="app-profile" onClick={() => profile?.id && navigate(`/profile/${profile.id}`)}>
             <div className="app-avatar">
               {profile?.profileImageUrl ? (

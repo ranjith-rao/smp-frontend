@@ -12,11 +12,80 @@ const fileToDataUrl = (file) => new Promise((resolve, reject) => {
 
 const emptyFeature = { icon: '', title: '', description: '' };
 const emptyStat = { value: '', label: '' };
+const defaultStats = [
+  { value: '120k+', label: 'Active Members' },
+  { value: '4.6M', label: 'Posts Shared' },
+  { value: '92%', label: 'Positive Interactions' },
+  { value: '48+', label: 'Countries Connected' },
+];
+const defaultFeatures = [
+  { icon: '💬', title: 'Real Conversations', description: 'Build meaningful connections with people who share your interests and passions.' },
+  { icon: '📝', title: 'Creator Tools', description: 'Express yourself freely and share your thoughts, photos, and experiences.' },
+  { icon: '❤️', title: 'Engagement', description: 'Like, comment, and interact with content from your connections.' },
+];
 const defaultAboutBullets = [
   '✨ Clean and intuitive user interface',
   '🔒 Privacy-first approach to social networking',
   '💬 Real-time messaging and notifications',
 ];
+
+const normalizeStats = (rawStats) => {
+  if (Array.isArray(rawStats)) {
+    const cleaned = rawStats
+      .map((item) => ({
+        value: item?.value ?? '',
+        label: item?.label ?? '',
+      }))
+      .filter((item) => item.value || item.label);
+    return cleaned.length ? cleaned : defaultStats;
+  }
+
+  if (rawStats && typeof rawStats === 'object') {
+    const cleaned = Object.entries(rawStats)
+      .map(([key, value]) => {
+        if (value && typeof value === 'object') {
+          return {
+            value: value.value ?? '',
+            label: value.label ?? key,
+          };
+        }
+        return {
+          value: value ?? '',
+          label: key,
+        };
+      })
+      .filter((item) => item.value || item.label);
+    return cleaned.length ? cleaned : defaultStats;
+  }
+
+  return defaultStats;
+};
+
+const normalizeFeatures = (rawFeatures) => {
+  if (Array.isArray(rawFeatures)) {
+    const cleaned = rawFeatures
+      .map((item) => ({
+        icon: item?.icon ?? '',
+        title: item?.title ?? '',
+        description: item?.description ?? '',
+      }))
+      .filter((item) => item.icon || item.title || item.description);
+    return cleaned.length ? cleaned : defaultFeatures;
+  }
+
+  if (rawFeatures && typeof rawFeatures === 'object') {
+    const cleaned = Object.values(rawFeatures)
+      .map((item) => ({
+        icon: item?.icon ?? '',
+        title: item?.title ?? '',
+        description: item?.description ?? '',
+      }))
+      .filter((item) => item.icon || item.title || item.description);
+    return cleaned.length ? cleaned : defaultFeatures;
+  }
+
+  return defaultFeatures;
+};
 
 const ManageContent = () => {
   const { refresh } = useSiteSettings();
@@ -52,14 +121,14 @@ const ManageContent = () => {
           heroTitle: data.heroTitle || data.homeTitle || '',
           heroSubtitle: data.heroSubtitle || data.homeSubtitle || '',
           heroImageUrl: data.heroImageUrl || '',
-          statsJson: Array.isArray(data.statsJson) ? data.statsJson : [],
+          statsJson: normalizeStats(data.statsJson),
           aboutTitle: data.aboutTitle || 'Build your community here',
           aboutDescription: data.aboutDescription || data.homeDescription || '',
           aboutBulletsJson: Array.isArray(data.aboutBulletsJson) && data.aboutBulletsJson.length > 0
             ? data.aboutBulletsJson
             : defaultAboutBullets,
           aboutImageUrl: data.aboutImageUrl || '',
-          featuresJson: Array.isArray(data.featuresJson) ? data.featuresJson : [],
+          featuresJson: normalizeFeatures(data.featuresJson),
           ctaTitle: data.ctaTitle || '',
           ctaDescription: data.ctaDescription || '',
           ctaButtonText: data.ctaButtonText || 'Create your account',

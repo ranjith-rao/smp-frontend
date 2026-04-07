@@ -1,7 +1,7 @@
 /**
  * API Configuration
  * Centralized URL configuration for all API calls
-+ */
+ */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -12,7 +12,9 @@ export const API_CONFIG = {
     USERS: `${API_BASE_URL}/api/users`,
     PAGES: `${API_BASE_URL}/api/pages`,
     POSTS: `${API_BASE_URL}/api/posts`,
+    STORIES: `${API_BASE_URL}/api/stories`,
     CONTENT: `${API_BASE_URL}/api/content`,
+    NOTIFICATIONS: `${API_BASE_URL}/api/notifications`,
     CHATS: `${API_BASE_URL}/api/chats`,
     ADMIN: `${API_BASE_URL}/api/admin`,
   },
